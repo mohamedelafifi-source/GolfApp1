@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="ReliableMenuApp.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ReliableMenuApp"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Reliable WinUI Menu App">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Background="White">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <MenuBar Grid.Row="0">
+            <MenuBarItem Title="File">
+                <MenuFlyoutItem Text="New" Click="OnFileNewClicked" />
+                <MenuFlyoutItem Text="Open" Click="OnFileOpenClicked" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
+            </MenuBarItem>
+            <MenuBarItem Title="Edit">
+                <MenuFlyoutItem Text="Settings" Click="OnEditSettingsClicked" />
+            </MenuBarItem>
+        </MenuBar>
+
+        <StackPanel Grid.Row="1" Margin="20" Spacing="10" VerticalAlignment="Center">
+
+            <TextBlock Text="WinUI Application Running Successfully." 
+                       FontSize="24" 
+                       HorizontalAlignment="Center" 
+                       Margin="0,0,0,10" />
+
+            <TextBlock x:Name="StatusLabel" 
+                       Text="Select a menu item to see the action..." 
+                       FontSize="16" 
+                       HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</Window>
