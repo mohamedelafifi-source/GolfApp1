@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.11217.181 d18.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GolfApp1", "GolfApp1.csproj", "{1EA6D7ED-B777-E960-2EFD-766D13D5871F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM64 = Debug|ARM64
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|ARM64 = Release|ARM64
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|ARM64.Build.0 = Debug|ARM64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|x64.ActiveCfg = Debug|x64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|x64.Build.0 = Debug|x64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|x86.ActiveCfg = Debug|x86
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Debug|x86.Build.0 = Debug|x86
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|ARM64.ActiveCfg = Release|ARM64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|ARM64.Build.0 = Release|ARM64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|x64.ActiveCfg = Release|x64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|x64.Build.0 = Release|x64
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|x86.ActiveCfg = Release|x86
+		{1EA6D7ED-B777-E960-2EFD-766D13D5871F}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {343577F1-9741-4C32-822A-119AED5D24F9}
+	EndGlobalSection
+EndGlobal

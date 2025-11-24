@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -19,22 +20,32 @@ using Windows.Foundation.Collections;
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
-namespace ReliableMenuApp
+namespace GolfApp1
 {
     /// <summary>
     /// Provides application-specific behavior to supplement the default Application class.
     /// </summary>
     public partial class App : Application
     {
-        private Window? _window;
-
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
         /// executed, and as such is the logical equivalent of main() or WinMain().
         /// </summary>
         public App()
         {
-            InitializeComponent();
+            this.InitializeComponent();
+            // Register app-level handler to log unhandled exceptions and avoid breaking
+            // at the generated App.g.i.cs breakpoint.
+            this.UnhandledException += App_UnhandledException;
+        }
+
+        private void App_UnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            // Log the exception to Debug output for diagnosis.
+            Debug.WriteLine("Unhandled exception: " + e.Exception?.ToString());
+
+            // Prevent the runtime from breaking into the debugger at the generated hookup.
+            e.Handled = true;
         }
 
         /// <summary>
@@ -43,8 +54,9 @@ namespace ReliableMenuApp
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            _window = new MainWindow();
-            _window.Activate();
+            base.OnLaunched(args);
+            var wnd = new MainWindow();
+            wnd.Activate();
         }
     }
 }
