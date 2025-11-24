@@ -1,9 +1,6 @@
 {
   "profiles": {
-    "ReliableMenuApp (Package)": {
-      "commandName": "MsixPackage"
-    },
-    "ReliableMenuApp (Unpackaged)": {
+    "GolfApp1": {
       "commandName": "Project"
     }
   }
