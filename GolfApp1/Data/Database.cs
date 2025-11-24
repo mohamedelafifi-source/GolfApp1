@@ -11,6 +11,94 @@ namespace GolfApp1.Data
         private readonly string _path;
         private SqliteConnection? _conn;
 
+
+	public async Task<string?> UpsertPlayerAsync(Player player)
+	{
+    if (player is null) throw new ArgumentNullException(nameof(player));
+    if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+    try
+    {
+        using var tran = _conn.BeginTransaction();
+
+        // Check whether the player exists (by Id) and get its current club if present
+        using var checkCmd = _conn.CreateCommand();
+        checkCmd.Transaction = tran;
+        checkCmd.CommandText = "SELECT ClubShortName FROM Players WHERE Id = $id LIMIT 1;";
+        checkCmd.Parameters.AddWithValue("$id", player.Id);
+        var scalar = await checkCmd.ExecuteScalarAsync();
+        string? existingClub = scalar == null || scalar == DBNull.Value ? null : Convert.ToString(scalar);
+
+        if (existingClub is null)
+        {
+            // Insert new player
+            using var insertCmd = _conn.CreateCommand();
+            insertCmd.Transaction = tran;
+            insertCmd.CommandText = @"
+INSERT INTO Players (Id, ClubShortName, Code, Name, IndexValue, Note)
+VALUES ($id, $club, $code, $name, $index, $note);";
+            insertCmd.Parameters.AddWithValue("$id", player.Id);
+            insertCmd.Parameters.AddWithValue("$club", player.ClubShortName);
+            insertCmd.Parameters.AddWithValue("$code", player.Code);
+            insertCmd.Parameters.AddWithValue("$name", player.Name);
+            insertCmd.Parameters.AddWithValue("$index", string.IsNullOrEmpty(player.IndexValue) ? (object)DBNull.Value : player.IndexValue);
+            insertCmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
+            await insertCmd.ExecuteNonQueryAsync();
+
+            // Increment club count
+            using var incCmd = _conn.CreateCommand();
+            incCmd.Transaction = tran;
+            incCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers + 1 WHERE ShortName = $club;";
+            incCmd.Parameters.AddWithValue("$club", player.ClubShortName);
+            await incCmd.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            // Update existing player
+            using var updateCmd = _conn.CreateCommand();
+            updateCmd.Transaction = tran;
+            updateCmd.CommandText = @"
+UPDATE Players
+SET ClubShortName = $club, Code = $code, Name = $name, IndexValue = $index, Note = $note
+WHERE Id = $id;";
+            updateCmd.Parameters.AddWithValue("$id", player.Id);
+            updateCmd.Parameters.AddWithValue("$club", player.ClubShortName);
+            updateCmd.Parameters.AddWithValue("$code", player.Code);
+            updateCmd.Parameters.AddWithValue("$name", player.Name);
+            updateCmd.Parameters.AddWithValue("$index", string.IsNullOrEmpty(player.IndexValue) ? (object)DBNull.Value : player.IndexValue);
+            updateCmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
+            await updateCmd.ExecuteNonQueryAsync();
+
+            // Adjust club counts if the club changed
+            if (!string.Equals(existingClub, player.ClubShortName, StringComparison.Ordinal))
+            {
+                using var decCmd = _conn.CreateCommand();
+                decCmd.Transaction = tran;
+                decCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers - 1 WHERE ShortName = $club;";
+                decCmd.Parameters.AddWithValue("$club", existingClub);
+                await decCmd.ExecuteNonQueryAsync();
+
+                using var incCmd = _conn.CreateCommand();
+                incCmd.Transaction = tran;
+                incCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers + 1 WHERE ShortName = $club;";
+                incCmd.Parameters.AddWithValue("$club", player.ClubShortName);
+                await incCmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        await tran.CommitAsync();
+        return null;
+    }
+    catch (SqliteException ex)
+    {
+        return ex.Message;
+    }
+    catch (Exception ex)
+    {
+        return ex.Message;
+    }
+}
+
         public Database(string path)
         {
             _path = path ?? throw new ArgumentNullException(nameof(path));

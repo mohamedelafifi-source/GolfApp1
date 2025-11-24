@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
+using Windows.Storage;
 using GolfApp1.Data;
 using GolfApp1.Models;
 
@@ -17,12 +18,19 @@ namespace GolfApp1
         private readonly List<Club> _clubs = new();
         private int _index = 0;
 
+        // Player editor state
+        private readonly List<Player> _players = new();
+        private int _playerIndex = 0;
+        private bool _inPlayerMode = false;
+
         public MainWindow()
         {
             this.InitializeComponent();
             this.Title = "GolfApp1";
+
             // show editor on startup
             EditorArea.Visibility = Visibility.Visible;
+
             _ = InitializeAsync();
         }
 
@@ -31,21 +39,17 @@ namespace GolfApp1
             StatusLabel.Text = message;
         }
 
-        // Helper: prefer ApplicationData when available, otherwise use AppStorage and ensure folder exists.
         private static string GetDataFolder()
         {
             try
             {
-                var appData = Windows.Storage.ApplicationData.Current;
+                var appData = ApplicationData.Current;
                 var path = appData?.LocalFolder?.Path;
                 if (!string.IsNullOrWhiteSpace(path)) return path;
             }
             catch { /* Activation may fail in unpackaged scenarios */ }
 
-            // NOTE: AppStorage is not defined in this file. Assuming it's in GolfApp1.Data namespace or a helper class.
-            // If AppStorage is an error, you must define it or replace it with a system-specific fallback path.
-            var fallback = AppStorage.GetDataFolder();
-            return fallback;
+            return AppStorage.GetDataFolder();
         }
 
         private async Task InitializeAsync()
@@ -103,9 +107,6 @@ namespace GolfApp1
             ValidateNameFields();
         }
 
-        // --- Menu Item Handlers (Required by XAML) ---
-
-        // ERROR FIXED: Removed duplicate declaration. OnFileNewClicked kept.
         private void OnFileNewClicked(object sender, RoutedEventArgs e)
         {
             _index = _clubs.Count;
@@ -129,15 +130,10 @@ namespace GolfApp1
             UpdateStatus("Action: Edit -> Settings was clicked.");
         }
 
-        // --- Navigation and Validation Handlers ---
-
         private void OnPrevClicked(object sender, RoutedEventArgs e) { if (_index > 0) { _index--; ShowCurrent(); } }
         private void OnNextClicked(object sender, RoutedEventArgs e) { var total = _clubs.Count + 1; if (_index < total - 1) { _index++; ShowCurrent(); } }
 
-        private void OnNameFieldsTextChanged(object sender, TextChangedEventArgs e)
-        {
-            ValidateNameFields();
-        }
+        private void OnNameFieldsTextChanged(object sender, TextChangedEventArgs e) => ValidateNameFields();
 
         private void ValidateNameFields()
         {
@@ -145,8 +141,6 @@ namespace GolfApp1
             var longName = LongNameTextBox.Text?.Trim() ?? string.Empty;
             SaveButton.IsEnabled = shortName.Length == 4 && longName.Length >= 1 && longName.Length <= 20;
         }
-
-        // --- CRUD Operations ---
 
         private async void OnSaveClicked(object sender, RoutedEventArgs e)
         {
@@ -196,51 +190,96 @@ namespace GolfApp1
             UpdateStatus("Editor closed.");
         }
 
+        // ---------------- Player editing ----------------
+
         private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
         {
-            // Use current club short name
+            if (_db is null) { UpdateStatus("Database not initialized."); return; }
+            if (_index >= _clubs.Count) { UpdateStatus("Please save the club before adding players."); return; }
+
             var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
-            if (string.IsNullOrEmpty(clubShort))
+            if (string.IsNullOrEmpty(clubShort)) { UpdateStatus("Club short name missing."); return; }
+
+            await EnterPlayerModeAsync(clubShort);
+        }
+
+        private async Task EnterPlayerModeAsync(string clubShort)
+        {
+            _players.Clear();
+            if (_db is null) return;
+            var list = await _db.GetPlayersByClubAsync(clubShort);
+            _players.AddRange(list);
+
+            _playerIndex = 0;
+            _inPlayerMode = true;
+
+            // Toggle UI: hide club editor panels, show player editor panel (must exist in XAML)
+            ClubEditorPanel.Visibility = Visibility.Collapsed;
+            ClubButtonsPanel.Visibility = Visibility.Collapsed;
+            PlayerEditorPanel.Visibility = Visibility.Visible;
+
+            ShowPlayer();
+            UpdatePlayerNavigationButtons();
+            UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
+        }
+
+        private void ShowPlayer()
+        {
+            if (!_inPlayerMode) return;
+
+            if (_playerIndex < _players.Count)
             {
-                UpdateStatus("Set club short name before adding players.");
-                return;
+                var p = _players[_playerIndex];
+                PlayerCodeTextBox.Text = p.Code;
+                PlayerNameTextBox.Text = p.Name;
+                PlayerIndexTextBox.Text = p.IndexValue;
+                PlayerNoteTextBox.Text = p.Note;
+                UpdatePlayerButton.Content = "Update";
+                PlayerCodeTextBox.IsEnabled = false;
+            }
+            else
+            {
+                PlayerCodeTextBox.Text = string.Empty;
+                PlayerNameTextBox.Text = string.Empty;
+                PlayerIndexTextBox.Text = string.Empty;
+                PlayerNoteTextBox.Text = string.Empty;
+                UpdatePlayerButton.Content = "Add";
+                PlayerCodeTextBox.IsEnabled = true;
             }
 
-            // Build dialog fields
-            var codeBox = new TextBox { PlaceholderText = "6-digit code", MaxLength = 6 };
-            var nameBox = new TextBox { PlaceholderText = "Player name (<=20)", MaxLength = 20 };
-            var indexBox = new TextBox { PlaceholderText = "Index (e.g. 12.3)", MaxLength = 5 };
-            var noteBox = new TextBox { PlaceholderText = "Note (<=20)", MaxLength = 20 };
+            UpdatePlayerNavigationButtons();
+            var total = _players.Count + 1;
+            UpdateStatus($"Player {_playerIndex + 1}/{total}");
+        }
 
-            var panel = new StackPanel { Spacing = 8 };
-            panel.Children.Add(new TextBlock { Text = "Club short name:" });
-            panel.Children.Add(new TextBlock { Text = clubShort, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "6-digit unique code:" });
-            panel.Children.Add(codeBox);
-            panel.Children.Add(new TextBlock { Text = "Player name (<=20, unique):" });
-            panel.Children.Add(nameBox);
-            panel.Children.Add(new TextBlock { Text = "Index (xx.x):" });
-            panel.Children.Add(indexBox);
-            panel.Children.Add(new TextBlock { Text = "Note (<=20):" });
-            panel.Children.Add(noteBox);
+        private void UpdatePlayerNavigationButtons()
+        {
+            PrevPlayerButton.IsEnabled = _playerIndex > 0;
+            NextPlayerButton.IsEnabled = _playerIndex < _players.Count;
+        }
 
-            var dialog = new ContentDialog
-            {
-                Title = "Add Player",
-                Content = panel,
-                PrimaryButtonText = "Add",
-                CloseButtonText = "Cancel",
-                XamlRoot = this.Content?.XamlRoot
-            };
+        private void OnPrevPlayerClicked(object sender, RoutedEventArgs e)
+        {
+            if (!_inPlayerMode) return;
+            if (_playerIndex > 0) { _playerIndex--; ShowPlayer(); }
+        }
 
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Primary) { UpdateStatus("Add Player canceled."); return; }
+        private void OnNextPlayerClicked(object sender, RoutedEventArgs e)
+        {
+            if (!_inPlayerMode) return;
+            var maxIndex = _players.Count;
+            if (_playerIndex < maxIndex) { _playerIndex++; ShowPlayer(); }
+        }
 
-            // Validate
-            var code = codeBox.Text?.Trim() ?? string.Empty;
-            var name = nameBox.Text?.Trim() ?? string.Empty;
-            var idx = indexBox.Text?.Trim() ?? string.Empty;
-            var note = noteBox.Text?.Trim() ?? string.Empty;
+        private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
+        {
+            if (!_inPlayerMode || _db is null) return;
+
+            var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+            var code = PlayerCodeTextBox.Text?.Trim() ?? string.Empty;
+            var name = PlayerNameTextBox.Text?.Trim() ?? string.Empty;
+            var idx = PlayerIndexTextBox.Text?.Trim() ?? string.Empty;
+            var note = PlayerNoteTextBox.Text?.Trim() ?? string.Empty;
 
             if (code.Length != 6 || !int.TryParse(code, out _))
             {
@@ -253,26 +292,64 @@ namespace GolfApp1
                 return;
             }
 
-            var player = new Player
+            try
             {
-                Id = Guid.NewGuid().ToString(),
-                ClubShortName = clubShort,
-                Code = code,
-                Name = name,
-                IndexValue = idx,
-                Note = note
-            };
+                if (_playerIndex < _players.Count)
+                {
+                    var existing = _players[_playerIndex];
+                    existing.Name = name;
+                    existing.IndexValue = idx;
+                    existing.Note = note;
 
-            if (_db is null) { UpdateStatus("Database not initialized."); return; }
+                    var err = await _db.UpsertPlayerAsync(existing);
+                    if (err != null) { UpdateStatus("Update failed: " + err); return; }
+                    UpdateStatus($"Player '{name}' updated.");
+                }
+                else
+                {
+                    if (_players.Exists(p => p.Code == code))
+                    {
+                        UpdateStatus($"Add failed: Player code '{code}' already exists in this club.");
+                        return;
+                    }
 
-            var (success, error) = await _db.InsertPlayerAsync(player);
-            if (!success)
-            {
-                UpdateStatus("Add player failed: " + error);
-                return;
+                    var player = new Player
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        ClubShortName = clubShort,
+                        Code = code,
+                        Name = name,
+                        IndexValue = idx,
+                        Note = note
+                    };
+
+                    var err = await _db.UpsertPlayerAsync(player);
+                    if (err != null) { UpdateStatus("Add failed: " + err); return; }
+
+                    _players.Add(player);
+                    _playerIndex = _players.Count - 1;
+                    UpdateStatus($"Player '{name}' added.");
+                }
+
+                ShowPlayer();
             }
+            catch (Exception ex)
+            {
+                UpdateStatus("Save player failed: " + ex.Message);
+            }
+        }
 
-            UpdateStatus($"Added player '{name}' to club {clubShort}.");
+        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e) => ExitPlayerMode();
+
+        private async void ExitPlayerMode()
+        {
+            _inPlayerMode = false;
+            PlayerEditorPanel.Visibility = Visibility.Collapsed;
+            ClubEditorPanel.Visibility = Visibility.Visible;
+            ClubButtonsPanel.Visibility = Visibility.Visible;
+
+            if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
+            UpdateStatus("Returned from player editor.");
         }
     }
 }
