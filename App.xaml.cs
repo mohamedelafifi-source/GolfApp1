@@ -1,62 +1,50 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Shapes;
-using Windows.ApplicationModel;
+using Microsoft.Windows.ApplicationModel.DynamicDependency; // REQUIRED for Bootstrapper
 using Windows.ApplicationModel.Activation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
-
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
 
 namespace GolfApp1
 {
-    /// <summary>
-    /// Provides application-specific behavior to supplement the default Application class.
-    /// </summary>
     public partial class App : Application
     {
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
         public App()
         {
+            // --- BOOTSTRAPPER INITIALIZATION ---
+            // This must be called before InitializeComponent() for unpackaged apps.
+            try
+            {
+                // 0x00010005 corresponds to Windows App SDK version 1.5
+                Bootstrap.Initialize(0x00010005);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Windows App SDK initialization failed: {ex.Message}");
+                // You may want to notify the user here that the runtime is missing.
+            }
+            // -----------------------------------
+
             this.InitializeComponent();
-            // Register app-level handler to log unhandled exceptions and avoid breaking
-            // at the generated App.g.i.cs breakpoint.
+
             this.UnhandledException += App_UnhandledException;
         }
 
         private void App_UnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
-            // Log the exception to Debug output for diagnosis.
             Debug.WriteLine("Unhandled exception: " + e.Exception?.ToString());
-
-            // Prevent the runtime from breaking into the debugger at the generated hookup.
             e.Handled = true;
         }
 
-        /// <summary>
-        /// Invoked when the application is launched.
-        /// </summary>
-        /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             base.OnLaunched(args);
+            // Assuming your main window class is named MainWindow
             var wnd = new MainWindow();
             wnd.Activate();
         }
+
+        // REMOVED: protected override void OnExit() {...}
+        // This method does not exist in Microsoft.UI.Xaml.Application.
     }
 }

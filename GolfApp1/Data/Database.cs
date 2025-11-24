@@ -6,7 +6,7 @@ using GolfApp1.Models;
 
 namespace GolfApp1.Data
 {
-    internal sealed class Database : IDisposable
+    internal sealed partial class Database : IDisposable
     {
         private readonly string _path;
         private SqliteConnection? _conn;
@@ -22,86 +22,32 @@ namespace GolfApp1.Data
             _conn = new SqliteConnection(cs);
             await _conn.OpenAsync();
 
-            // If table exists but contains a CHECK() on NumberOfPlayers, migrate to new schema without the CHECK.
-            var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='Clubs';";
-            var existing = await cmd.ExecuteScalarAsync() as string;
-
-            if (!string.IsNullOrWhiteSpace(existing))
-            {
-                // If the existing CREATE TABLE includes a CHECK constraint on NumberOfPlayers, recreate table.
-                if (existing.IndexOf("CHECK", StringComparison.OrdinalIgnoreCase) >= 0
-                    && existing.IndexOf("NumberOfPlayers", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    using var tx = _conn.BeginTransaction();
-                    try
-                    {
-                        // Create new table without CHECK constraint
-                        using var createNew = _conn.CreateCommand();
-                        createNew.Transaction = tx;
-                        createNew.CommandText = @"
-CREATE TABLE IF NOT EXISTS Clubs_new (
-    Id TEXT PRIMARY KEY,
-    ShortName TEXT NOT NULL UNIQUE,
-    LongName TEXT NOT NULL UNIQUE,
-    NumberOfPlayers INTEGER NOT NULL DEFAULT 0
-);";
-                        await createNew.ExecuteNonQueryAsync();
-
-                        // Copy existing data (preserve NumberOfPlayers when present)
-                        using var copy = _conn.CreateCommand();
-                        copy.Transaction = tx;
-                        copy.CommandText = @"
-INSERT INTO Clubs_new (Id, ShortName, LongName, NumberOfPlayers)
-SELECT Id, ShortName, LongName, 
-       CASE WHEN typeof(NumberOfPlayers) IN ('integer','real') THEN NumberOfPlayers ELSE 0 END
-FROM Clubs;";
-                        await copy.ExecuteNonQueryAsync();
-
-                        // Drop old table and rename new
-                        using var drop = _conn.CreateCommand();
-                        drop.Transaction = tx;
-                        drop.CommandText = "DROP TABLE Clubs;";
-                        await drop.ExecuteNonQueryAsync();
-
-                        using var rename = _conn.CreateCommand();
-                        rename.Transaction = tx;
-                        rename.CommandText = "ALTER TABLE Clubs_new RENAME TO Clubs;";
-                        await rename.ExecuteNonQueryAsync();
-
-                        await tx.CommitAsync();
-                    }
-                    catch
-                    {
-                        try { tx.Rollback(); } catch { /* ignore */ }
-                        throw;
-                    }
-                }
-
-                // Ensure table exists (in case it didn't at all) and has the desired columns.
-                using var ensure = _conn.CreateCommand();
-                ensure.CommandText = @"
+            // Ensure Clubs table exists (no CHECK constraint)
+            var createClubs = @"
 CREATE TABLE IF NOT EXISTS Clubs (
     Id TEXT PRIMARY KEY,
     ShortName TEXT NOT NULL UNIQUE,
     LongName TEXT NOT NULL UNIQUE,
     NumberOfPlayers INTEGER NOT NULL DEFAULT 0
 );";
-                await ensure.ExecuteNonQueryAsync();
-            }
-            else
-            {
-                // Table not present, create it with relaxed NumberOfPlayers definition.
-                using var create = _conn.CreateCommand();
-                create.CommandText = @"
-CREATE TABLE IF NOT EXISTS Clubs (
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = createClubs;
+            await cmd.ExecuteNonQueryAsync();
+
+            // Ensure Players table exists
+            var createPlayers = @"
+CREATE TABLE IF NOT EXISTS Players (
     Id TEXT PRIMARY KEY,
-    ShortName TEXT NOT NULL UNIQUE,
-    LongName TEXT NOT NULL UNIQUE,
-    NumberOfPlayers INTEGER NOT NULL DEFAULT 0
+    ClubShortName TEXT NOT NULL,
+    Code TEXT NOT NULL UNIQUE,
+    Name TEXT NOT NULL UNIQUE,
+    IndexValue TEXT,
+    Note TEXT,
+    FOREIGN KEY(ClubShortName) REFERENCES Clubs(ShortName)
 );";
-                await create.ExecuteNonQueryAsync();
-            }
+            using var cmd2 = _conn.CreateCommand();
+            cmd2.CommandText = createPlayers;
+            await cmd2.ExecuteNonQueryAsync();
         }
 
         public async Task<List<Club>> GetAllClubsAsync()
@@ -125,7 +71,6 @@ CREATE TABLE IF NOT EXISTS Clubs (
             return list;
         }
 
-        // Upsert by Id (insert or replace)
         public async Task UpsertClubAsync(Club club)
         {
             if (club is null) throw new ArgumentNullException(nameof(club));
@@ -145,12 +90,27 @@ VALUES ($id, $short, $long, $players);";
             await tran.CommitAsync();
         }
 
-        // Convenience insert (returns success flag and optional error)
-        public async Task<(bool Success, string? Error)> InsertClubAsync(Club club)
+        public async Task<(bool Success, string? Error)> InsertPlayerAsync(Player player)
         {
+            if (player is null) throw new ArgumentNullException(nameof(player));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
             try
             {
-                await UpsertClubAsync(club);
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = @"
+INSERT INTO Players (Id, ClubShortName, Code, Name, IndexValue, Note)
+VALUES ($id, $club, $code, $name, $index, $note);";
+                cmd.Parameters.AddWithValue("$id", player.Id);
+                cmd.Parameters.AddWithValue("$club", player.ClubShortName);
+                cmd.Parameters.AddWithValue("$code", player.Code);
+                cmd.Parameters.AddWithValue("$name", player.Name);
+                cmd.Parameters.AddWithValue("$index", string.IsNullOrEmpty(player.IndexValue) ? (object)DBNull.Value : player.IndexValue);
+                cmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
                 return (true, null);
             }
             catch (SqliteException ex)
@@ -161,6 +121,29 @@ VALUES ($id, $short, $long, $players);";
             {
                 return (false, ex.Message);
             }
+        }
+
+        public async Task<List<Player>> GetPlayersByClubAsync(string clubShort)
+        {
+            var list = new List<Player>();
+            if (_conn is null) return list;
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note FROM Players WHERE ClubShortName = $club ORDER BY RowId;";
+            cmd.Parameters.AddWithValue("$club", clubShort);
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                list.Add(new Player
+                {
+                    Id = rdr.GetString(0),
+                    ClubShortName = rdr.GetString(1),
+                    Code = rdr.GetString(2),
+                    Name = rdr.GetString(3),
+                    IndexValue = rdr.IsDBNull(4) ? string.Empty : rdr.GetString(4),
+                    Note = rdr.IsDBNull(5) ? string.Empty : rdr.GetString(5)
+                });
+            }
+            return list;
         }
 
         public void Dispose()

@@ -1,47 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Window
-    x:Class="ReliableMenuApp.MainWindow"
+    x:Class="GolfApp1.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:ReliableMenuApp"
+    xmlns:local="using:GolfApp1"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Reliable WinUI Menu App">
+    Title="GolfApp1">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid Background="White">
+    <Grid Padding="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <MenuBar Grid.Row="0">
-            <MenuBarItem Title="File">
-                <MenuFlyoutItem Text="New" Click="OnFileNewClicked" />
-                <MenuFlyoutItem Text="Open" Click="OnFileOpenClicked" />
-                <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
-            </MenuBarItem>
-            <MenuBarItem Title="Edit">
-                <MenuFlyoutItem Text="Settings" Click="OnEditSettingsClicked" />
-            </MenuBarItem>
-        </MenuBar>
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
+            <Button Content="File">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Create New Club" Click="OnFileNewClicked" />
+                        <MenuFlyoutItem Text="Create New Players" Click="OnFileOpenClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
 
-        <StackPanel Grid.Row="1" Margin="20" Spacing="10" VerticalAlignment="Center">
-
-            <TextBlock Text="WinUI Application Running Successfully." 
-                       FontSize="24" 
-                       HorizontalAlignment="Center" 
-                       Margin="0,0,0,10" />
-
-            <TextBlock x:Name="StatusLabel" 
-                       Text="Select a menu item to see the action..." 
-                       FontSize="16" 
-                       HorizontalAlignment="Center" />
+            <Button Content="Edit">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Settings" Click="OnEditSettingsClicked" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
         </StackPanel>
+
+        <Grid Grid.Row="1" x:Name="EditorArea" Visibility="Visible">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+                <TextBlock Text="Club:" VerticalAlignment="Center" />
+                <TextBlock x:Name="ShownLabel" Text="0/0" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Spacing="12" Margin="0,0,0,8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Short name:" Width="110" VerticalAlignment="Center" />
+                    <TextBox x:Name="ShortNameTextBox" Width="200" MaxLength="4" PlaceholderText="4 chars" TextChanged="OnNameFieldsTextChanged" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Long name:" Width="110" VerticalAlignment="Center" />
+                    <TextBox x:Name="LongNameTextBox" Width="360" MaxLength="20" PlaceholderText="Up to 20 chars" TextChanged="OnNameFieldsTextChanged" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,16">
+                <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
+                <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
+                <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                <Button x:Name="AddPlayerButton" Content="Add Player" Click="OnAddPlayerClicked" Width="110" />
+                <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
+            </StackPanel>
+
+            <TextBlock 
+                Grid.Row="4"
+                Text="GolfApp1 Application Running Successfully." 
+                FontSize="18" 
+                HorizontalAlignment="Center" 
+                VerticalAlignment="Bottom"
+                Opacity="0.85" />
+        </Grid>
+
+        <TextBlock x:Name="StatusLabel" 
+                   Grid.Row="2" 
+                   Text="Select a menu item to see the action..." 
+                   TextWrapping="Wrap" 
+                   Foreground="Gray" 
+                   Margin="0,12,0,0" />
+
     </Grid>
 </Window>
+
+
+
+
+
+
+
+
+

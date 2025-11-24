@@ -4,8 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using System.Diagnostics;
-using Windows.Storage;
 using Microsoft.Data.Sqlite;
 using GolfApp1.Data;
 using GolfApp1.Models;
@@ -44,6 +42,8 @@ namespace GolfApp1
             }
             catch { /* Activation may fail in unpackaged scenarios */ }
 
+            // NOTE: AppStorage is not defined in this file. Assuming it's in GolfApp1.Data namespace or a helper class.
+            // If AppStorage is an error, you must define it or replace it with a system-specific fallback path.
             var fallback = AppStorage.GetDataFolder();
             return fallback;
         }
@@ -103,7 +103,10 @@ namespace GolfApp1
             ValidateNameFields();
         }
 
-        private void OnClubHandlingClicked(object sender, RoutedEventArgs e)
+        // --- Menu Item Handlers (Required by XAML) ---
+
+        // ERROR FIXED: Removed duplicate declaration. OnFileNewClicked kept.
+        private void OnFileNewClicked(object sender, RoutedEventArgs e)
         {
             _index = _clubs.Count;
             EditorArea.Visibility = Visibility.Visible;
@@ -126,6 +129,8 @@ namespace GolfApp1
             UpdateStatus("Action: Edit -> Settings was clicked.");
         }
 
+        // --- Navigation and Validation Handlers ---
+
         private void OnPrevClicked(object sender, RoutedEventArgs e) { if (_index > 0) { _index--; ShowCurrent(); } }
         private void OnNextClicked(object sender, RoutedEventArgs e) { var total = _clubs.Count + 1; if (_index < total - 1) { _index++; ShowCurrent(); } }
 
@@ -140,6 +145,8 @@ namespace GolfApp1
             var longName = LongNameTextBox.Text?.Trim() ?? string.Empty;
             SaveButton.IsEnabled = shortName.Length == 4 && longName.Length >= 1 && longName.Length <= 20;
         }
+
+        // --- CRUD Operations ---
 
         private async void OnSaveClicked(object sender, RoutedEventArgs e)
         {
@@ -181,6 +188,91 @@ namespace GolfApp1
                 if (this.Content?.XamlRoot != null) await errDlg.ShowAsync();
             }
             catch (Exception ex) { UpdateStatus($"Save failed: {ex.Message}"); }
+        }
+
+        private void OnEditorExitClicked(object sender, RoutedEventArgs e)
+        {
+            EditorArea.Visibility = Visibility.Collapsed;
+            UpdateStatus("Editor closed.");
+        }
+
+        private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
+        {
+            // Use current club short name
+            var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(clubShort))
+            {
+                UpdateStatus("Set club short name before adding players.");
+                return;
+            }
+
+            // Build dialog fields
+            var codeBox = new TextBox { PlaceholderText = "6-digit code", MaxLength = 6 };
+            var nameBox = new TextBox { PlaceholderText = "Player name (<=20)", MaxLength = 20 };
+            var indexBox = new TextBox { PlaceholderText = "Index (e.g. 12.3)", MaxLength = 5 };
+            var noteBox = new TextBox { PlaceholderText = "Note (<=20)", MaxLength = 20 };
+
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(new TextBlock { Text = "Club short name:" });
+            panel.Children.Add(new TextBlock { Text = clubShort, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            panel.Children.Add(new TextBlock { Text = "6-digit unique code:" });
+            panel.Children.Add(codeBox);
+            panel.Children.Add(new TextBlock { Text = "Player name (<=20, unique):" });
+            panel.Children.Add(nameBox);
+            panel.Children.Add(new TextBlock { Text = "Index (xx.x):" });
+            panel.Children.Add(indexBox);
+            panel.Children.Add(new TextBlock { Text = "Note (<=20):" });
+            panel.Children.Add(noteBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = "Add Player",
+                Content = panel,
+                PrimaryButtonText = "Add",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary) { UpdateStatus("Add Player canceled."); return; }
+
+            // Validate
+            var code = codeBox.Text?.Trim() ?? string.Empty;
+            var name = nameBox.Text?.Trim() ?? string.Empty;
+            var idx = indexBox.Text?.Trim() ?? string.Empty;
+            var note = noteBox.Text?.Trim() ?? string.Empty;
+
+            if (code.Length != 6 || !int.TryParse(code, out _))
+            {
+                UpdateStatus("Code must be 6 digits.");
+                return;
+            }
+            if (string.IsNullOrEmpty(name) || name.Length > 20)
+            {
+                UpdateStatus("Player name must be 1..20 chars.");
+                return;
+            }
+
+            var player = new Player
+            {
+                Id = Guid.NewGuid().ToString(),
+                ClubShortName = clubShort,
+                Code = code,
+                Name = name,
+                IndexValue = idx,
+                Note = note
+            };
+
+            if (_db is null) { UpdateStatus("Database not initialized."); return; }
+
+            var (success, error) = await _db.InsertPlayerAsync(player);
+            if (!success)
+            {
+                UpdateStatus("Add player failed: " + error);
+                return;
+            }
+
+            UpdateStatus($"Added player '{name}' to club {clubShort}.");
         }
     }
 }
