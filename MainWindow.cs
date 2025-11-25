@@ -34,18 +34,6 @@ namespace GolfApp1
             _ = InitializeAsync();
         }
 
-
-     
-        private void OnEditorExitClicked(object sender, RoutedEventArgs e)
-        {
-            EditorArea.Visibility = Visibility.Collapsed;
-            UpdateStatus("Editor closed.");
-        }
-
-   
-        /// </summary>
-        /// <param name="message"></param>
-
         private void UpdateStatus(string message)
         {
             // StatusLabel defined in MainWindow.xaml
@@ -147,7 +135,10 @@ namespace GolfApp1
         private void OnPrevClicked(object sender, RoutedEventArgs e) { if (_index > 0) { _index--; ShowCurrent(); } }
         private void OnNextClicked(object sender, RoutedEventArgs e) { var total = _clubs.Count + 1; if (_index < total - 1) { _index++; ShowCurrent(); } }
 
-        private void OnNameFieldsTextChanged(object sender, TextChangedEventArgs e) => ValidateNameFields();
+        private void OnNameFieldsTextChanged(object sender, TextChangedEventArgs e)
+        {
+            ValidateNameFields();
+        }
 
         private void ValidateNameFields()
         {
@@ -190,9 +181,7 @@ namespace GolfApp1
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
             {
-                var msg = ex.Message.Contains("ShortName") ? "Short name must be unique." :
-                          ex.Message.Contains("LongName") ? "Long name must be unique." :
-                          "Constraint violation: " + ex.Message;
+                var msg = ex.Message.Contains("ShortName") ? "Short name must be unique." : ex.Message.Contains("LongName") ? "Long name must be unique." : "Constraint violation: " + ex.Message;
                 UpdateStatus($"Save failed: {msg}");
                 await ShowErrorAsync("Save Error", msg);
             }
@@ -203,15 +192,23 @@ namespace GolfApp1
             }
         }
 
-        // ---------------- Player editing ----------------
+        private void OnEditorExitClicked(object sender, RoutedEventArgs e)
+        {
+            EditorArea.Visibility = Visibility.Collapsed;
+            UpdateStatus("Editor closed.");
+        }
 
         private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
         {
+            // Enter player editor mode for current club
             if (_db is null) { UpdateStatus("Database not initialized."); return; }
-            if (_index >= _clubs.Count) { UpdateStatus("Please save the club before adding players."); return; }
-
             var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
-            if (string.IsNullOrEmpty(clubShort)) { UpdateStatus("Club short name missing."); return; }
+            if (string.IsNullOrEmpty(clubShort))
+            {
+                UpdateStatus("Set club short name before managing players.");
+                await ShowErrorAsync("Club missing", "Please set and save the club short name before managing players.");
+                return;
+            }
 
             await EnterPlayerModeAsync(clubShort);
         }
@@ -219,13 +216,14 @@ namespace GolfApp1
         private async Task EnterPlayerModeAsync(string clubShort)
         {
             _players.Clear();
-            if (_db is null) return;
-            var list = await _db.GetPlayersByClubAsync(clubShort);
+            var list = await _db!.GetPlayersByClubAsync(clubShort);
             _players.AddRange(list);
 
+            // allow adding new player(s) by having index point at 0..Count (Count => new entry)
             _playerIndex = 0;
             _inPlayerMode = true;
 
+            // Toggle UI
             ClubEditorPanel.Visibility = Visibility.Collapsed;
             ClubButtonsPanel.Visibility = Visibility.Collapsed;
             PlayerEditorPanel.Visibility = Visibility.Visible;
@@ -250,6 +248,7 @@ namespace GolfApp1
             }
             else
             {
+                // new blank entry
                 PlayerCodeTextBox.Text = string.Empty;
                 PlayerNameTextBox.Text = string.Empty;
                 PlayerIndexTextBox.Text = string.Empty;
@@ -263,6 +262,7 @@ namespace GolfApp1
         private void UpdatePlayerNavigationButtons()
         {
             PrevPlayerButton.IsEnabled = _playerIndex > 0;
+            // Allow Next to go to next existing or a blank new-entry slot
             NextPlayerButton.IsEnabled = _playerIndex < _players.Count;
         }
 
@@ -275,15 +275,15 @@ namespace GolfApp1
         private void OnNextPlayerClicked(object sender, RoutedEventArgs e)
         {
             if (!_inPlayerMode) return;
-            var maxIndex = _players.Count;
+            var maxIndex = _players.Count; // last valid is Count => blank for new
             if (_playerIndex < maxIndex) { _playerIndex++; ShowPlayer(); }
         }
 
         private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
         {
-            if (!_inPlayerMode || _db is null) return;
+            if (!_inPlayerMode) return;
+            if (_db is null) { UpdateStatus("Database not initialized."); await ShowErrorAsync("Database", "Database not initialized."); return; }
 
-            var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
             var code = PlayerCodeTextBox.Text?.Trim() ?? string.Empty;
             var name = PlayerNameTextBox.Text?.Trim() ?? string.Empty;
             var idx = PlayerIndexTextBox.Text?.Trim() ?? string.Empty;
@@ -306,6 +306,7 @@ namespace GolfApp1
             {
                 if (_playerIndex < _players.Count)
                 {
+                    // update existing
                     var existing = _players[_playerIndex];
                     existing.Code = code;
                     existing.Name = name;
@@ -324,6 +325,8 @@ namespace GolfApp1
                 }
                 else
                 {
+                    // insert new
+                    // local duplicate check for same club
                     if (_players.Exists(p => p.Code == code))
                     {
                         var msg = $"The player code '{code}' already exists in this club. It must be unique.";
@@ -335,7 +338,7 @@ namespace GolfApp1
                     var player = new Player
                     {
                         Id = Guid.NewGuid().ToString(),
-                        ClubShortName = clubShort,
+                        ClubShortName = ShortNameTextBox.Text?.Trim() ?? string.Empty,
                         Code = code,
                         Name = name,
                         IndexValue = idx,
@@ -351,11 +354,13 @@ namespace GolfApp1
                         return;
                     }
 
+                    // add to local list and move to that entry
                     _players.Add(player);
                     _playerIndex = _players.Count - 1;
                     UpdateStatus($"Player '{name}' added.");
                 }
 
+                // Keep editor open; refresh nav/buttons
                 ShowPlayer();
             }
             catch (Exception ex)
@@ -365,7 +370,10 @@ namespace GolfApp1
             }
         }
 
-        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e) => ExitPlayerMode();
+        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
+        {
+            ExitPlayerMode();
+        }
 
         private async void ExitPlayerMode()
         {
@@ -374,29 +382,45 @@ namespace GolfApp1
             ClubEditorPanel.Visibility = Visibility.Visible;
             ClubButtonsPanel.Visibility = Visibility.Visible;
 
+            // reload clubs to refresh NumberOfPlayers etc.
             if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
             UpdateStatus("Returned from player editor.");
         }
 
+        // Show a modal dialog for strong error messages and also update the status line.
         private async Task ShowErrorAsync(string title, string message)
         {
             UpdateStatus(message);
-            var dlg = new ContentDialog { Title = title, Content = message, CloseButtonText = "OK", XamlRoot = this.Content?.XamlRoot };
+            var dlg = new ContentDialog
+            {
+                Title = title,
+                Content = message,
+                CloseButtonText = "OK",
+                XamlRoot = this.Content?.XamlRoot
+            };
             if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
         }
 
+        // Map DB error text to a concise, user-friendly message
         private static string MapDbErrorToUserMessage(string dbError, string code)
         {
             if (string.IsNullOrEmpty(dbError)) return "A database error occurred.";
+
             var lower = dbError.ToLowerInvariant();
+
+            // Common SQLite constraint/unique messages
             if (lower.Contains("unique") || lower.Contains("constraint") || lower.Contains("code"))
             {
                 return $"This player code '{code}' already exists. It must be unique.";
             }
+
+            // SQLite error 19 (constraint) fallback
             if (lower.Contains("sqlite") && lower.Contains("19"))
             {
                 return "A uniqueness constraint failed in the database. The value must be unique.";
             }
+
+            // Fallback: return the DB message but keep it readable
             return dbError;
         }
     }

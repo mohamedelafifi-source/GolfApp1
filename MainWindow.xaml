@@ -24,8 +24,8 @@
             <Button Content="File">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="Create New Club" Click="OnFileNewClicked" />
-                        <MenuFlyoutItem Text="Create New Players" Click="OnFileOpenClicked" />
+                        <MenuFlyoutItem Text="Club Handling" Click="OnFileNewClicked" />
+                        <MenuFlyoutItem Text="Player Handling" Click="OnFileOpenClicked" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
                     </MenuFlyout>
@@ -105,39 +105,17 @@
                     <Button x:Name="ExitPlayerEditorButton" Content="Exit" Click="OnExitPlayerEditorClicked" Width="110" />
                 </StackPanel>
             </StackPanel>
-
-            <TextBlock 
-                Grid.Row="4"
-                Text="GolfApp1 Application Running Successfully." 
-                FontSize="18" 
-                HorizontalAlignment="Center" 
-                VerticalAlignment="Bottom"
-                Opacity="0.85" />
         </Grid>
 
-        <TextBlock x:Name="StatusLabel" 
-                   Grid.Row="2" 
-                   Text="Select a menu item to see the action..." 
-                   TextWrapping="Wrap" 
-                   Foreground="Gray" 
-                   Margin="0,12,0,0" />
+        <!-- Status line (bottom) -->
+        <Border Grid.Row="2" Padding="8" Background="Transparent">
+            <TextBlock x:Name="StatusLabel"
+                       Text="Ready"
+                       FontWeight="Bold"
+                       Foreground="Crimson"
+                       FontSize="13"
+                       TextTrimming="CharacterEllipsis" />
+        </Border>
 
     </Grid>
 </Window>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

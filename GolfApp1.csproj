@@ -15,6 +15,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="MainWindow.cs" />
     <Compile Remove="OLDDatabase.cs" />
   </ItemGroup>
 
