@@ -1,24 +1,27 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Microsoft.Data.Sqlite;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using GolfApp1.Data;
 using GolfApp1.Models;
+using GolfApp1.ViewModels;
 
 namespace GolfApp1
 {
     public sealed partial class MainWindow : Window
     {
         private Database? _db;
-        private string? _dbPath;
+        private MainViewModel? _vm;
+
         private readonly List<Club> _clubs = new();
         private int _index = 0;
 
-        // Player editor state
+        // Player editor state (kept for UI navigation; populated from VM)
         private readonly List<Player> _players = new();
         private int _playerIndex = 0;
         private bool _inPlayerMode = false;
@@ -33,18 +36,71 @@ namespace GolfApp1
 
             _ = InitializeAsync();
         }
+        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
+        {
+            // Reuse existing ExitPlayerMode logic
+            ExitPlayerMode();
+        }
 
-
-     
         private void OnEditorExitClicked(object sender, RoutedEventArgs e)
         {
+            // Close the editor UI and ensure any player editor is exited
+            try
+            {
+                // If player editor is open, close it first
+                if (_inPlayerMode)
+                {
+                    ExitPlayerMode();
+                }
+            }
+            catch
+            {
+                // ignore - best effort
+            }
+
             EditorArea.Visibility = Visibility.Collapsed;
             UpdateStatus("Editor closed.");
         }
+        private async Task InitializeAsync()
+        {
+            try
+            {
+                var dataFolder = GetDataFolder();
+                var dbPath = Path.Combine(dataFolder, "golfapp.db");
+                _db = new Database(dbPath);
+                await _db.InitializeAsync();
 
-   
-        /// </summary>
-        /// <param name="message"></param>
+                // Create and wire ViewModel
+                _vm = new MainViewModel(_db);
+
+                // Set DataContext on the Window root element (WinUI3 pattern)
+                var root = this.Content as FrameworkElement;
+                if (root is not null)
+                {
+                    root.DataContext = _vm;
+                }
+
+                // Load clubs into VM and local cache
+                await _vm.LoadClubsAsync();
+                RefreshLocalClubsFromVm();
+
+                _index = 0;
+                ShowCurrent();
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Initialization error: " + ex.Message);
+                await ShowErrorAsync("Initialization error", ex.Message);
+            }
+        }
+
+        // copy VM clubs into local list used by existing UI code
+        private void RefreshLocalClubsFromVm()
+        {
+            _clubs.Clear();
+            if (_vm is null) return;
+            foreach (var c in _vm.Clubs) _clubs.Add(c);
+        }
 
         private void UpdateStatus(string message)
         {
@@ -65,33 +121,7 @@ namespace GolfApp1
             return AppStorage.GetDataFolder();
         }
 
-        private async Task InitializeAsync()
-        {
-            try
-            {
-                var dataFolder = GetDataFolder();
-                _dbPath = Path.Combine(dataFolder, "golfapp.db");
-                _db = new Database(_dbPath);
-                await _db.InitializeAsync();
-                await LoadClubsAsync();
-
-                _index = 0;
-                ShowCurrent();
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus("Initialization error: " + ex.Message);
-                await ShowErrorAsync("Initialization error", ex.Message);
-            }
-        }
-
-        private async Task LoadClubsAsync()
-        {
-            _clubs.Clear();
-            if (_db is null) return;
-            var list = await _db.GetAllClubsAsync();
-            _clubs.AddRange(list);
-        }
+        // ---------------- Club UI helpers ----------------
 
         private void ShowCurrent()
         {
@@ -158,7 +188,7 @@ namespace GolfApp1
 
         private async void OnSaveClicked(object sender, RoutedEventArgs e)
         {
-            if (_db is null) { UpdateStatus("Database not initialized."); return; }
+            if (_vm is null) { UpdateStatus("Database not initialized."); return; }
 
             var shortName = ShortNameTextBox.Text?.Trim() ?? string.Empty;
             var longName = LongNameTextBox.Text?.Trim() ?? string.Empty;
@@ -173,19 +203,20 @@ namespace GolfApp1
                     var existing = _clubs[_index];
                     existing.ShortName = shortName;
                     existing.LongName = longName;
-                    await _db.UpsertClubAsync(existing);
+                    await _vm.UpsertClubAsync(existing);
                     UpdateStatus($"Saved club '{shortName}' (updated).");
                 }
                 else
                 {
                     var club = new Club { Id = Guid.NewGuid().ToString(), ShortName = shortName, LongName = longName, NumberOfPlayers = 0 };
-                    await _db.UpsertClubAsync(club);
+                    await _vm.UpsertClubAsync(club);
                     _clubs.Add(club);
                     _index = _clubs.Count - 1;
                     UpdateStatus($"Created club '{shortName}'.");
                 }
 
-                await LoadClubsAsync();
+                await _vm.LoadClubsAsync();
+                RefreshLocalClubsFromVm();
                 ShowCurrent();
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
@@ -260,9 +291,59 @@ namespace GolfApp1
             if (_playerIndex < maxIndex) { _playerIndex++; ShowPlayer(); }
         }
 
+        private async Task EnterPlayerModeAsync(string clubShort)
+        {
+            if (_vm is null || _db is null) return;
+
+            _players.Clear();
+            await _vm.LoadPlayersAsync(clubShort);
+            foreach (var p in _vm.Players) _players.Add(p);
+
+            _playerIndex = 0;
+            _inPlayerMode = true;
+
+            // Keep the club editor visible but make it read-only so the user still sees the current club.
+            ShortNameTextBox.IsEnabled = false;
+            LongNameTextBox.IsEnabled = false;
+
+            // Disable club navigation and actions while in player mode
+            PrevButton.IsEnabled = false;
+            NextButton.IsEnabled = false;
+            SaveButton.IsEnabled = false;
+            AddPlayerButton.IsEnabled = false;
+
+            // Show player editor panel
+            PlayerEditorPanel.Visibility = Visibility.Visible;
+
+            ShowPlayer();
+            UpdatePlayerNavigationButtons();
+            UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
+        }
+
+        private async void ExitPlayerMode()
+        {
+            _inPlayerMode = false;
+            PlayerEditorPanel.Visibility = Visibility.Collapsed;
+
+            // Restore club editor interactivity
+            ShortNameTextBox.IsEnabled = true;
+            LongNameTextBox.IsEnabled = true;
+
+            // Restore club navigation/buttons
+            PrevButton.IsEnabled = _index > 0;
+            NextButton.IsEnabled = _index < _clubs.Count - 1;
+            AddPlayerButton.IsEnabled = true;
+
+            ValidateNameFields();
+
+            // Refresh clubs via VM
+            if (_vm != null) { await _vm.LoadClubsAsync(); RefreshLocalClubsFromVm(); ShowCurrent(); }
+            UpdateStatus("Returned from player editor.");
+        }
+
         private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
         {
-            if (!_inPlayerMode || _db is null) return;
+            if (!_inPlayerMode || _vm is null) return;
 
             var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
             var code = PlayerCodeTextBox.Text?.Trim() ?? string.Empty;
@@ -293,7 +374,7 @@ namespace GolfApp1
                     existing.IndexValue = idx;
                     existing.Note = note;
 
-                    var err = await _db.UpsertPlayerAsync(existing);
+                    var err = await _vm.UpsertPlayerAsync(existing);
                     if (err != null)
                     {
                         var friendly = MapDbErrorToUserMessage(err, existing.Code);
@@ -323,7 +404,7 @@ namespace GolfApp1
                         Note = note
                     };
 
-                    var err = await _db.UpsertPlayerAsync(player);
+                    var err = await _vm.UpsertPlayerAsync(player);
                     if (err != null)
                     {
                         var friendly = MapDbErrorToUserMessage(err, code);
@@ -346,60 +427,7 @@ namespace GolfApp1
             }
         }
 
-        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e) => ExitPlayerMode();
-
-       
-       
-        private async Task EnterPlayerModeAsync(string clubShort)
-        {
-            _players.Clear();
-            if (_db is null) return;
-            var list = await _db.GetPlayersByClubAsync(clubShort);
-            _players.AddRange(list);
-
-            _playerIndex = 0;
-            _inPlayerMode = true;
-
-            // Keep the club editor visible but make it read-only so the user still sees the current club.
-            ShortNameTextBox.IsEnabled = false;
-            LongNameTextBox.IsEnabled = false;
-
-            // Disable club navigation and actions while in player mode to avoid conflicting edits.
-            PrevButton.IsEnabled = false;
-            NextButton.IsEnabled = false;
-            SaveButton.IsEnabled = false;
-            AddPlayerButton.IsEnabled = false;
-
-            // Show player editor panel
-            PlayerEditorPanel.Visibility = Visibility.Visible;
-
-            ShowPlayer();
-            UpdatePlayerNavigationButtons();
-            UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
-        }
-
-        private async void ExitPlayerMode()
-        {
-            _inPlayerMode = false;
-            PlayerEditorPanel.Visibility = Visibility.Collapsed;
-
-            // Restore club editor interactivity
-            ShortNameTextBox.IsEnabled = true;
-            LongNameTextBox.IsEnabled = true;
-
-            // Restore club navigation/buttons to their normal enabled state
-            PrevButton.IsEnabled = _index > 0;
-            NextButton.IsEnabled = _index < _clubs.Count - 1 ? true : _index < _clubs.Count; // safe restore
-            AddPlayerButton.IsEnabled = true;
-
-            // Re-evaluate save button enabled state
-            ValidateNameFields();
-
-            // reload clubs to refresh NumberOfPlayers etc.
-            if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
-            UpdateStatus("Returned from player editor.");
-        }
-
+        // helper: show modal error and update status
         private async Task ShowErrorAsync(string title, string message)
         {
             UpdateStatus(message);
