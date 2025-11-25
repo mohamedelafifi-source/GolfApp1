@@ -216,27 +216,6 @@ namespace GolfApp1
             await EnterPlayerModeAsync(clubShort);
         }
 
-        /*
-        private async Task EnterPlayerModeAsync(string clubShort)
-        {
-            _players.Clear();
-            if (_db is null) return;
-            var list = await _db.GetPlayersByClubAsync(clubShort);
-            _players.AddRange(list);
-
-            _playerIndex = 0;
-            _inPlayerMode = true;
-
-            ClubEditorPanel.Visibility = Visibility.Collapsed;
-            ClubButtonsPanel.Visibility = Visibility.Collapsed;
-            PlayerEditorPanel.Visibility = Visibility.Visible;
-
-            ShowPlayer();
-            UpdatePlayerNavigationButtons();
-            UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
-        }
-        */
-
         private void ShowPlayer()
         {
             if (!_inPlayerMode) return;
@@ -369,20 +348,9 @@ namespace GolfApp1
 
         private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e) => ExitPlayerMode();
 
-        /*
-        private async void ExitPlayerMode()
-        {
-            _inPlayerMode = false;
-            PlayerEditorPanel.Visibility = Visibility.Collapsed;
-            ClubEditorPanel.Visibility = Visibility.Visible;
-            ClubButtonsPanel.Visibility = Visibility.Visible;
-
-            if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
-            UpdateStatus("Returned from player editor.");
-        }
-        */
        
-private async Task EnterPlayerModeAsync(string clubShort)
+       
+        private async Task EnterPlayerModeAsync(string clubShort)
         {
             _players.Clear();
             if (_db is null) return;
