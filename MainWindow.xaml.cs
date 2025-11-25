@@ -216,6 +216,7 @@ namespace GolfApp1
             await EnterPlayerModeAsync(clubShort);
         }
 
+        /*
         private async Task EnterPlayerModeAsync(string clubShort)
         {
             _players.Clear();
@@ -234,6 +235,7 @@ namespace GolfApp1
             UpdatePlayerNavigationButtons();
             UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
         }
+        */
 
         private void ShowPlayer()
         {
@@ -367,6 +369,7 @@ namespace GolfApp1
 
         private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e) => ExitPlayerMode();
 
+        /*
         private async void ExitPlayerMode()
         {
             _inPlayerMode = false;
@@ -374,6 +377,57 @@ namespace GolfApp1
             ClubEditorPanel.Visibility = Visibility.Visible;
             ClubButtonsPanel.Visibility = Visibility.Visible;
 
+            if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
+            UpdateStatus("Returned from player editor.");
+        }
+        */
+       
+private async Task EnterPlayerModeAsync(string clubShort)
+        {
+            _players.Clear();
+            if (_db is null) return;
+            var list = await _db.GetPlayersByClubAsync(clubShort);
+            _players.AddRange(list);
+
+            _playerIndex = 0;
+            _inPlayerMode = true;
+
+            // Keep the club editor visible but make it read-only so the user still sees the current club.
+            ShortNameTextBox.IsEnabled = false;
+            LongNameTextBox.IsEnabled = false;
+
+            // Disable club navigation and actions while in player mode to avoid conflicting edits.
+            PrevButton.IsEnabled = false;
+            NextButton.IsEnabled = false;
+            SaveButton.IsEnabled = false;
+            AddPlayerButton.IsEnabled = false;
+
+            // Show player editor panel
+            PlayerEditorPanel.Visibility = Visibility.Visible;
+
+            ShowPlayer();
+            UpdatePlayerNavigationButtons();
+            UpdateStatus($"Player editor for club {clubShort}. {_players.Count} existing players.");
+        }
+
+        private async void ExitPlayerMode()
+        {
+            _inPlayerMode = false;
+            PlayerEditorPanel.Visibility = Visibility.Collapsed;
+
+            // Restore club editor interactivity
+            ShortNameTextBox.IsEnabled = true;
+            LongNameTextBox.IsEnabled = true;
+
+            // Restore club navigation/buttons to their normal enabled state
+            PrevButton.IsEnabled = _index > 0;
+            NextButton.IsEnabled = _index < _clubs.Count - 1 ? true : _index < _clubs.Count; // safe restore
+            AddPlayerButton.IsEnabled = true;
+
+            // Re-evaluate save button enabled state
+            ValidateNameFields();
+
+            // reload clubs to refresh NumberOfPlayers etc.
             if (_db != null) { await LoadClubsAsync(); ShowCurrent(); }
             UpdateStatus("Returned from player editor.");
         }
