@@ -72,7 +72,8 @@
                 <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
                 <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
                 <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
-                <Button x:Name="AddPlayerButton" Content="Add Player" Click="OnAddPlayerClicked" Width="110" />
+                <Button x:Name="AddPlayerButton" Content="Players" Click="OnAddPlayerClicked" Width="110" />
+                <Button x:Name="LoadFileButton" Content="Bulk Add" Click="OnLoadFileClicked" Width="160" />
                 <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
             </StackPanel>
 

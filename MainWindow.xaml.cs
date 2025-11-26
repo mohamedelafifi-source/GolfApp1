@@ -36,6 +36,46 @@ namespace GolfApp1
 
             _ = InitializeAsync();
         }
+        
+        private async void OnLoadFileClicked(object sender, RoutedEventArgs e)
+        {
+            // Create a FileOpenPicker and initialize it with the current window handle (WinUI3 desktop pattern)
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+
+            // Initialize with window handle
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            picker.FileTypeFilter.Clear();
+            picker.FileTypeFilter.Add(".txt");
+            picker.FileTypeFilter.Add(".csv");
+
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                UpdateStatus("File open cancelled.");
+                return;
+            }
+
+            UpdateStatus($"Selected file: {file.Name}");
+
+            try
+            {
+                // For now just read the text so we can test the picker.
+                var text = await Windows.Storage.FileIO.ReadTextAsync(file);
+
+                // Show a confirmation dialog (you can remove/replace this later)
+                await ShowErrorAsync("File Selected", $"File '{file.Name}' selected ({text.Length} bytes).");
+
+                // TODO: parse `text` and call bulk-add logic (UpsertPlayerAsync) in the ViewModel.
+            }
+            catch (Exception ex)
+            {
+                await ShowErrorAsync("File Open Failed", ex.Message);
+            }
+        }
+
         private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
         {
             // Reuse existing ExitPlayerMode logic
@@ -47,7 +87,6 @@ namespace GolfApp1
             // Close the editor UI and ensure any player editor is exited
             try
             {
-                // If player editor is open, close it first
                 if (_inPlayerMode)
                 {
                     ExitPlayerMode();
