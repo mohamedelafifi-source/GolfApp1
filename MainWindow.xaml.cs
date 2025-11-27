@@ -1,15 +1,16 @@
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-using Windows.Storage;
-using Microsoft.Data.Sqlite;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using GolfApp1.Data;
 using GolfApp1.Models;
 using GolfApp1.ViewModels;
+using Microsoft.Data.Sqlite;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Windows.Storage;
 
 namespace GolfApp1
 {
@@ -36,7 +37,6 @@ namespace GolfApp1
 
             _ = InitializeAsync();
         }
-        
         private async void OnLoadFileClicked(object sender, RoutedEventArgs e)
         {
             // Create a FileOpenPicker and initialize it with the current window handle (WinUI3 desktop pattern)
@@ -62,13 +62,57 @@ namespace GolfApp1
 
             try
             {
-                // For now just read the text so we can test the picker.
                 var text = await Windows.Storage.FileIO.ReadTextAsync(file);
 
-                // Show a confirmation dialog (you can remove/replace this later)
+                // Show confirmation (optional)
                 await ShowErrorAsync("File Selected", $"File '{file.Name}' selected ({text.Length} bytes).");
 
-                // TODO: parse `text` and call bulk-add logic (UpsertPlayerAsync) in the ViewModel.
+                // Determine club short name to import into.
+                // Prefer the current short name in the UI; otherwise ask the user to enter one.
+                var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+
+                if (string.IsNullOrEmpty(clubShort))
+                {
+                    //To make sure a club is selected before parsing 
+                    // I can comment this out 
+                    // Prompt the user to enter a club short name (4 chars expected)
+                    var inputBox = new TextBox { PlaceholderText = "Enter 4-char club short name" };
+                    var dlg = new ContentDialog
+                    {
+                        Title = "Select Club",
+                        Content = new StackPanel
+                        {
+                            Children =
+                    {
+                        new TextBlock { Text = "No club selected in the editor. Enter the club short name to import into:", TextWrapping = TextWrapping.Wrap },
+                        inputBox
+                    },
+                            Spacing = 8
+                        },
+                        PrimaryButtonText = "OK",
+                        CloseButtonText = "Cancel",
+                        XamlRoot = this.Content?.XamlRoot
+                    };
+
+                    var result = ContentDialogResult.None;
+                    if (this.Content?.XamlRoot != null) result = await dlg.ShowAsync();
+                    if (result != ContentDialogResult.Primary)
+                    {
+                        UpdateStatus("Import cancelled (no club selected).");
+                        return;
+                    }
+
+                    clubShort = inputBox.Text?.Trim() ?? string.Empty;
+                    if (clubShort.Length != 4)
+                    {
+                        UpdateStatus("Club short name must be exactly 4 characters.");
+                        await ShowErrorAsync("Invalid Club", "Club short name must be exactly 4 characters (e.g. ABCD).");
+                        return;
+                    }
+                }
+                //This is the direct call without the check above
+                // Hand off to the parser/import flow. The method will prompt the user to Auto Add or Review.
+                await ParseAndBulkAddAsync(text, clubShort);
             }
             catch (Exception ex)
             {
@@ -76,6 +120,88 @@ namespace GolfApp1
             }
         }
 
+        /*
+        private async void OnLoadFileClicked(object sender, RoutedEventArgs e)
+        {
+            // Create a FileOpenPicker and initialize it with the current window handle (WinUI3 desktop pattern)
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+
+            // Initialize with window handle
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            picker.FileTypeFilter.Clear();
+            picker.FileTypeFilter.Add(".txt");
+            picker.FileTypeFilter.Add(".csv");
+
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                UpdateStatus("File open cancelled.");
+                return;
+            }
+
+            UpdateStatus($"Selected file: {file.Name}");
+
+            try
+            {
+                var text = await Windows.Storage.FileIO.ReadTextAsync(file);
+
+                // Show confirmation (optional)
+                await ShowErrorAsync("File Selected", $"File '{file.Name}' selected ({text.Length} bytes).");
+
+                // Determine club short name to import into.
+                // Prefer the current short name in the UI; otherwise ask the user to enter one.
+                var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+
+                if (string.IsNullOrEmpty(clubShort))
+                {
+                    // Prompt the user to enter a club short name (4 chars expected)
+                    var inputBox = new TextBox { PlaceholderText = "Enter 4-char club short name" };
+                    var dlg = new ContentDialog
+                    {
+                        Title = "Select Club",
+                        Content = new StackPanel
+                        {
+                            Children =
+                            {
+                                new TextBlock { Text = "No club selected in the editor. Enter the club short name to import into:", TextWrapping = TextWrapping.Wrap },
+                                inputBox
+                            },
+                            Spacing = 8
+                        },
+                        PrimaryButtonText = "OK",
+                        CloseButtonText = "Cancel",
+                        XamlRoot = this.Content?.XamlRoot
+                    };
+
+                    var result = ContentDialogResult.None;
+                    if (this.Content?.XamlRoot != null) result = await dlg.ShowAsync();
+                    if (result != ContentDialogResult.Primary)
+                    {
+                        UpdateStatus("Import cancelled (no club selected).");
+                        return;
+                    }
+
+                    clubShort = inputBox.Text?.Trim() ?? string.Empty;
+                    if (clubShort.Length != 4)
+                    {
+                        UpdateStatus("Club short name must be exactly 4 characters.");
+                        await ShowErrorAsync("Invalid Club", "Club short name must be exactly 4 characters (e.g. ABCD).");
+                        return;
+                    }
+                }
+
+                // Hand off to the parser/import flow. The method will prompt the user to Auto Add or Review.
+                await ParseAndBulkAddAsync(text, clubShort);
+            }
+            catch (Exception ex)
+            {
+                await ShowErrorAsync("File Open Failed", ex.Message);
+            }
+        }
+        */
         private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
         {
             // Reuse existing ExitPlayerMode logic
@@ -379,8 +505,192 @@ namespace GolfApp1
             if (_vm != null) { await _vm.LoadClubsAsync(); RefreshLocalClubsFromVm(); ShowCurrent(); }
             UpdateStatus("Returned from player editor.");
         }
+        // Paste these methods into the MainWindow class (alongside existing helpers).
+// Also ensure you have `using System.Text.RegularExpressions;` at the top of the file.
 
-        private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
+
+
+    private async Task ParseAndBulkAddAsync(string text, string clubShort)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            UpdateStatus("File is empty.");
+            await ShowErrorAsync("Empty file", "The selected file contains no text.");
+            return;
+        }
+
+        // Parse into Player records (semicolon-separated fields; labels end with colon)
+        var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        var parsed = new List<Player>(lines.Length);
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrEmpty(line)) continue;
+
+            var tokens = line.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            var code = string.Empty;
+            var name = string.Empty;
+            var idx = string.Empty;
+            var note = string.Empty;
+
+            foreach (var t in tokens)
+            {
+                var parts = t.Split(new[] { ':' }, 2);
+                if (parts.Length < 2) continue;
+                var label = parts[0].Trim().TrimEnd(':').ToLowerInvariant();
+                var value = parts[1].Trim();
+
+                if (label.Contains("code")) code = value;
+                else if (label.Contains("name")) name = value;
+                else if (label.Contains("index")) idx = value;
+                else if (label.Contains("note")) note = value;
+            }
+
+            // Basic normalization: remove spaces from code
+            code = Regex.Replace(code, @"\s+", string.Empty);
+
+            var player = new Player
+            {
+                Id = Guid.NewGuid().ToString(),
+                ClubShortName = clubShort,
+                Code = code,
+                Name = name,
+                IndexValue = idx,
+                Note = note
+            };
+
+            parsed.Add(player);
+        }
+
+        if (parsed.Count == 0)
+        {
+            UpdateStatus("No valid records found in file.");
+            await ShowErrorAsync("No records", "No valid player records were found in the selected file.");
+            return;
+        }
+
+        // Ask user: Auto Add or Load For Review
+        var dlg = new ContentDialog
+        {
+            Title = "Import Options",
+            Content = $"Parsed {parsed.Count} records. Do you want to add them to the database now, or load them for review?",
+            PrimaryButtonText = "Auto Add",
+            SecondaryButtonText = "Review",
+            CloseButtonText = "Cancel",
+            XamlRoot = this.Content?.XamlRoot
+        };
+
+        var result = ContentDialogResult.None;
+        if (this.Content?.XamlRoot != null) result = await dlg.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            await BulkAddPlayersAsync(parsed);
+        }
+        else if (result == ContentDialogResult.Secondary)
+        {
+            LoadPlayersForReview(parsed, clubShort);
+        }
+        else
+        {
+            UpdateStatus("Import cancelled.");
+        }
+    }
+
+    private async Task BulkAddPlayersAsync(List<Player> players)
+    {
+        if (_vm is null)
+        {
+            UpdateStatus("Database not initialized.");
+            await ShowErrorAsync("Error", "Database not initialized.");
+            return;
+        }
+
+        var added = 0;
+        var failed = 0;
+        var errors = new List<string>();
+
+        foreach (var p in players)
+        {
+            // minimal validation
+            if (string.IsNullOrEmpty(p.Code) || p.Code.Length != 6 || !int.TryParse(p.Code, out _))
+            {
+                failed++;
+                errors.Add($"Code '{p.Code}' invalid (expected 6 digits).");
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(p.Name))
+            {
+                failed++;
+                errors.Add($"Code '{p.Code}': missing name.");
+                continue;
+            }
+
+            try
+            {
+                var err = await _vm.UpsertPlayerAsync(p);
+                if (err != null)
+                {
+                    failed++;
+                    errors.Add($"Code '{p.Code}': {MapDbErrorToUserMessage(err, p.Code)}");
+                }
+                else
+                {
+                    added++;
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                errors.Add($"Code '{p.Code}': unexpected error: {ex.Message}");
+            }
+        }
+
+        var summary = $"Bulk import finished. Added: {added}. Failed: {failed}.";
+        UpdateStatus(summary);
+
+        var details = errors.Count == 0 ? string.Empty : string.Join("\n", errors.Count > 50 ? errors.GetRange(0, 50) : errors);
+        if (errors.Count > 50) details += $"\n... ({errors.Count - 50} more lines)";
+
+        await ShowErrorAsync(failed == 0 ? "Import Complete" : "Import Completed with errors",
+                             summary + (string.IsNullOrEmpty(details) ? string.Empty : $"\n\n{details}"));
+
+        // If player editor was open for this club, reload it
+        if (_inPlayerMode)
+        {
+            var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrEmpty(clubShort)) await EnterPlayerModeAsync(clubShort);
+        }
+    }
+
+    private void LoadPlayersForReview(List<Player> players, string clubShort)
+    {
+        // Clear existing review list and populate with parsed records
+        _players.Clear();
+        foreach (var p in players) _players.Add(p);
+
+        _playerIndex = 0;
+        _inPlayerMode = true;
+
+        // Keep the club editor visible but read-only
+        ShortNameTextBox.IsEnabled = false;
+        LongNameTextBox.IsEnabled = false;
+
+        // Disable club navigation and actions while reviewing
+        PrevButton.IsEnabled = false;
+        NextButton.IsEnabled = false;
+        SaveButton.IsEnabled = false;
+        AddPlayerButton.IsEnabled = false;
+
+        // Show player editor panel and load first record into fields for review
+        PlayerEditorPanel.Visibility = Visibility.Visible;
+        ShowPlayer();
+        UpdatePlayerNavigationButtons();
+
+        UpdateStatus($"Loaded {players.Count} records for review. Use Next/Prev and press Add/Update to save.");
+    }
+    private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
         {
             if (!_inPlayerMode || _vm is null) return;
 
