@@ -25,7 +25,8 @@
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="Club Data" Click="OnFileNewClicked" />
-                        <MenuFlyoutItem Text="Results" Click="OnFileOpenClicked" />
+                        <!-- Use new handler name to avoid duplicate OnFileOpenClicked -->
+                        <MenuFlyoutItem Text="Results" Click="OnResultsClicked" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
                     </MenuFlyout>
