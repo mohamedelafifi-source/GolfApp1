@@ -1,4 +1,6 @@
-﻿using System;
+﻿
+
+using System;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -39,7 +41,7 @@ namespace GolfApp1
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             base.OnLaunched(args);
-            // Assuming your main window class is named MainWindow
+            // Instantiate the main window (class name must match MainWindow.xaml x:Class)
             var wnd = new MainWindow();
             wnd.Activate();
         }

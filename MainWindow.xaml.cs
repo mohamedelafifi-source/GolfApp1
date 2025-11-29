@@ -14,6 +14,7 @@ using Windows.Storage;
 
 namespace GolfApp1
 {
+    // NOTE: class name must match the x:Class in MainWindow.xaml
     public sealed partial class MainWindow : Window
     {
         private Database? _db;

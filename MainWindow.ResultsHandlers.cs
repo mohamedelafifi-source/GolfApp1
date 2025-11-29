@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,25 +7,49 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
-        // Temporary: make invocation obvious and debuggable.
+        // Re-added Results menu functionality.
         private async void OnResultsClicked(object sender, RoutedEventArgs e)
         {
-            Debug.WriteLine("OnResultsClicked invoked");
-            UpdateStatus("Results clicked (handler invoked).");
+            UpdateStatus("Results menu opened.");
 
-            // Show a simple dialog so you can see the handler ran.
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Choose an action for results:",
+                TextWrapping = TextWrapping.Wrap
+            });
+
             var dlg = new ContentDialog
             {
-                Title = "Debug",
-                Content = "OnResultsClicked handler invoked.",
-                CloseButtonText = "OK",
+                Title = "Results",
+                Content = panel,
+                PrimaryButtonText = "Import PDF",
+                CloseButtonText = "Cancel",
                 XamlRoot = this.Content?.XamlRoot
             };
 
-            if (this.Content?.XamlRoot != null)
+            if (this.Content?.XamlRoot == null)
             {
-                await dlg.ShowAsync();
+                UpdateStatus("Results action: UI unavailable.");
+                return;
             }
+
+            // IMPORTANT: ShowAsync() returns IAsyncOperation<T> — use AsTask() before awaiting
+            var result = await dlg.ShowAsync().AsTask();
+            if (result == ContentDialogResult.Primary)
+            {
+                await InvokeImportHandlerAsync();
+            }
+            else
+            {
+                UpdateStatus("Results action cancelled.");
+            }
+        }
+
+        private Task InvokeImportHandlerAsync()
+        {
+            OnImportPdfClicked(this, new RoutedEventArgs());
+            return Task.CompletedTask;
         }
     }
 }
