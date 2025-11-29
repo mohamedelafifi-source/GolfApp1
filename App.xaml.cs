@@ -1,5 +1,4 @@
 ﻿
-
 using System;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
@@ -45,8 +44,5 @@ namespace GolfApp1
             var wnd = new MainWindow();
             wnd.Activate();
         }
-
-        // REMOVED: protected override void OnExit() {...}
-        // This method does not exist in Microsoft.UI.Xaml.Application.
     }
 }
