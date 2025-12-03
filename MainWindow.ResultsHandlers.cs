@@ -1,4 +1,5 @@
-
+//MainWindow.ResultsHandler.cs
+//============================
 using System;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -45,6 +46,17 @@ namespace GolfApp1
             {
                 UpdateStatus("Results action cancelled.");
             }
+        }
+
+        // New: open editor to enter results manually.
+        private void OnEnterResultsClicked(object sender, RoutedEventArgs e)
+        {
+            UpdateStatus("Enter Results selected.");
+            // Show the editor area and populate current club data
+            EditorArea.Visibility = Visibility.Visible;
+            // Ensure VM clubs are current and UI fields populated
+            RefreshLocalClubsFromVm();
+            ShowCurrent();
         }
 
         private Task InvokeImportHandlerAsync()
