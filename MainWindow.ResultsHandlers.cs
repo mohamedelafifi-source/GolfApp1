@@ -1,6 +1,7 @@
-//MainWindow.ResultsHandler.cs
-//============================
+// MainWindow.ResultsHandlers.cs
+// Handlers for Results menu and Enter Results header
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -9,7 +10,7 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
-        // Re-added Results menu functionality.
+        // Results menu: show import dialog (Import Results -> Import PDF)
         private async void OnResultsClicked(object sender, RoutedEventArgs e)
         {
             UpdateStatus("Results menu opened.");
@@ -36,7 +37,6 @@ namespace GolfApp1
                 return;
             }
 
-            // IMPORTANT: ShowAsync() returns IAsyncOperation<T> — use AsTask() before awaiting
             var result = await dlg.ShowAsync().AsTask();
             if (result == ContentDialogResult.Primary)
             {
@@ -48,59 +48,84 @@ namespace GolfApp1
             }
         }
 
-        // Show the new Enter Results UI
+        // Show the Enter Results header UI
         private void OnEnterResultsClicked(object sender, RoutedEventArgs e)
         {
             UpdateStatus("Enter Results selected.");
 
-            // Hide editor and show ResultsArea
-            EditorArea.Visibility = Visibility.Collapsed;
-            ResultsArea.Visibility = Visibility.Visible;
+            // Hide club editor and show results area
+            if (EditorArea is not null) EditorArea.Visibility = Visibility.Collapsed;
+            if (ResultsArea is not null) ResultsArea.Visibility = Visibility.Visible;
 
-            // initialize header values
-            ResultsDatePicker.Date = DateTime.Now.Date;
-            ResultsClubCombo.ItemsSource = null;
-            ResultsVenueCombo.ItemsSource = null;
-            PlayerNameCombo.ItemsSource = null;
-            PartnerCombo.ItemsSource = null;
+            // Initialize header
+            if (ResultsDatePicker is not null) ResultsDatePicker.Date = DateTimeOffset.Now.Date;
 
-            // populate clubs from local cache
+            // Refresh local clubs and populate club/venue lists
             RefreshLocalClubsFromVm();
-            ResultsClubCombo.ItemsSource = _clubs.ConvertAll(c => c.ShortName);
+            if (ResultsClubCombo is not null) ResultsClubCombo.ItemsSource = _clubs.Select(c => c.ShortName).ToList();
+            if (ResultsVenueCombo is not null) ResultsVenueCombo.ItemsSource = _clubs.Select(c => c.LongName).ToList();
 
-            // set venues to same list by default
-            ResultsVenueCombo.ItemsSource = _clubs.ConvertAll(c => c.LongName);
+            // hide entry panel until Proceed
+            if (ResultsEntryPanel is not null) ResultsEntryPanel.Visibility = Visibility.Collapsed;
 
-            ResultsEntryPanel.Visibility = Visibility.Collapsed;
-            UpdateStatus("Enter Results: set header fields, then Proceed.");
+            UpdateProceedButtonState();
         }
 
-        // SelectionChanged handler for the club combo in the Enter Results header.
-        // Loads players for the selected club into the Player/Partner combo boxes.
+        // Called when the club combo selection changes in the header.
         private async void OnResultsClubChanged(object? sender, SelectionChangedEventArgs e)
         {
+            UpdateProceedButtonState();
+
             try
             {
                 if (sender is not ComboBox cb) return;
                 var selected = cb.SelectedItem?.ToString();
                 if (string.IsNullOrEmpty(selected))
                 {
-                    PlayerNameCombo.ItemsSource = null;
-                    PartnerCombo.ItemsSource = null;
+                    if (PlayerNameCombo is not null) PlayerNameCombo.ItemsSource = null;
+                    if (PartnerCombo is not null) PartnerCombo.ItemsSource = null;
                     UpdateStatus("Club selection cleared.");
                     return;
                 }
 
                 UpdateStatus($"Loading players for club '{selected}'...");
-                // Use existing loader (defined in EnterResults partial)
                 await LoadPlayersForResultsAsync(selected);
                 UpdateStatus($"Loaded {_vm?.Players.Count ?? 0} players for '{selected}'.");
             }
             catch (Exception ex)
             {
                 UpdateStatus("Failed to load players: " + ex.Message);
-                PlayerNameCombo.ItemsSource = null;
-                PartnerCombo.ItemsSource = null;
+                if (PlayerNameCombo is not null) PlayerNameCombo.ItemsSource = null;
+                if (PartnerCombo is not null) PartnerCombo.ItemsSource = null;
+            }
+        }
+
+        // Called when the date picker value changes.
+        private void OnResultsDateChanged(object? sender, DatePickerValueChangedEventArgs e)
+        {
+            UpdateProceedButtonState();
+        }
+
+        // Called when venue selection changes.
+        private void OnResultsVenueChanged(object? sender, SelectionChangedEventArgs e)
+        {
+            UpdateProceedButtonState();
+        }
+
+        // Helper: enable Proceed only when date, club and venue are set.
+        private void UpdateProceedButtonState()
+        {
+            try
+            {
+                var dateOk = ResultsDatePicker is not null && ResultsDatePicker.Date != DateTimeOffset.MinValue;
+                var clubOk = ResultsClubCombo is not null && ResultsClubCombo.SelectedItem != null;
+                var venueOk = ResultsVenueCombo is not null && ResultsVenueCombo.SelectedItem != null;
+
+                if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = dateOk && clubOk && venueOk;
+            }
+            catch
+            {
+                if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = false;
             }
         }
 

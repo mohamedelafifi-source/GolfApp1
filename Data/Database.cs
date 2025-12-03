@@ -1,6 +1,3 @@
-
-//GolfApp1\Data\Database.cs
-//=============================
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -9,7 +6,7 @@ using GolfApp1.Models;
 
 namespace GolfApp1.Data
 {
-    internal sealed partial class Database : IDisposable
+    internal sealed class Database : IDisposable
     {
         private readonly string _path;
         private SqliteConnection? _conn;
@@ -33,9 +30,11 @@ CREATE TABLE IF NOT EXISTS Clubs (
     LongName TEXT NOT NULL UNIQUE,
     NumberOfPlayers INTEGER NOT NULL DEFAULT 0
 );";
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = createClubs;
-            await cmd.ExecuteNonQueryAsync();
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = createClubs;
+                await cmd.ExecuteNonQueryAsync();
+            }
 
             // Ensure Players table exists
             var createPlayers = @"
@@ -48,9 +47,11 @@ CREATE TABLE IF NOT EXISTS Players (
     Note TEXT,
     FOREIGN KEY(ClubShortName) REFERENCES Clubs(ShortName)
 );";
-            using var cmd2 = _conn.CreateCommand();
-            cmd2.CommandText = createPlayers;
-            await cmd2.ExecuteNonQueryAsync();
+            using (var cmd2 = _conn.CreateCommand())
+            {
+                cmd2.CommandText = createPlayers;
+                await cmd2.ExecuteNonQueryAsync();
+            }
 
             // Ensure Results table exists
             var createResults = @"
@@ -69,17 +70,21 @@ CREATE TABLE IF NOT EXISTS Results (
     FOREIGN KEY(PlayerId) REFERENCES Players(Id),
     FOREIGN KEY(PartnerId) REFERENCES Players(Id)
 );";
-            using var cmd3 = _conn.CreateCommand();
-            cmd3.CommandText = createResults;
-            await cmd3.ExecuteNonQueryAsync();
+            using (var cmd3 = _conn.CreateCommand())
+            {
+                cmd3.CommandText = createResults;
+                await cmd3.ExecuteNonQueryAsync();
+            }
 
-            // Performance: index for common queries by club + date
-            using var idxCmd = _conn.CreateCommand();
-            idxCmd.CommandText = "CREATE INDEX IF NOT EXISTS IDX_Results_Club_Date ON Results(ClubShortName, Date);";
-            await idxCmd.ExecuteNonQueryAsync();
+            // Index for common queries by club + date
+            using (var idxCmd = _conn.CreateCommand())
+            {
+                idxCmd.CommandText = "CREATE INDEX IF NOT EXISTS IDX_Results_Club_Date ON Results(ClubShortName, Date);";
+                await idxCmd.ExecuteNonQueryAsync();
+            }
         }
 
-        // ------- Clubs / Players (existing methods) -------
+        // ------- Clubs / Players -------
 
         public async Task<List<Club>> GetAllClubsAsync()
         {
@@ -163,7 +168,6 @@ VALUES ($id, $club, $code, $name, $index, $note);";
             {
                 using var tran = _conn.BeginTransaction();
 
-                // Check whether the player exists (by Id) and get its current club if present
                 using var checkCmd = _conn.CreateCommand();
                 checkCmd.Transaction = tran;
                 checkCmd.CommandText = "SELECT ClubShortName FROM Players WHERE Id = $id LIMIT 1;";
@@ -173,7 +177,6 @@ VALUES ($id, $club, $code, $name, $index, $note);";
 
                 if (existingClub is null)
                 {
-                    // Insert new player
                     using var insertCmd = _conn.CreateCommand();
                     insertCmd.Transaction = tran;
                     insertCmd.CommandText = @"
@@ -187,7 +190,6 @@ VALUES ($id, $club, $code, $name, $index, $note);";
                     insertCmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
                     await insertCmd.ExecuteNonQueryAsync();
 
-                    // Increment club count
                     using var incCmd = _conn.CreateCommand();
                     incCmd.Transaction = tran;
                     incCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers + 1 WHERE ShortName = $club;";
@@ -196,7 +198,6 @@ VALUES ($id, $club, $code, $name, $index, $note);";
                 }
                 else
                 {
-                    // Update existing player
                     using var updateCmd = _conn.CreateCommand();
                     updateCmd.Transaction = tran;
                     updateCmd.CommandText = @"
@@ -211,7 +212,6 @@ WHERE Id = $id;";
                     updateCmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
                     await updateCmd.ExecuteNonQueryAsync();
 
-                    // Adjust club counts if the club changed
                     if (!string.Equals(existingClub, player.ClubShortName, StringComparison.Ordinal))
                     {
                         using var decCmd = _conn.CreateCommand();
@@ -264,7 +264,8 @@ WHERE Id = $id;";
             return list;
         }
 
-        // Persist or update a result record
+        // ------- Results persistence -------
+
         public async Task<string?> UpsertResultAsync(Models.ResultRecord r)
         {
             if (r is null) throw new ArgumentNullException(nameof(r));
@@ -308,7 +309,6 @@ VALUES ($id, $date, $club, $venue, $playerId, $partnerId, $playerName, $partnerN
             }
         }
 
-        // Retrieve results by club and optional date range
         public async Task<List<Models.ResultRecord>> GetResultsAsync(string clubShort, DateTime? from = null, DateTime? to = null)
         {
             var list = new List<Models.ResultRecord>();
