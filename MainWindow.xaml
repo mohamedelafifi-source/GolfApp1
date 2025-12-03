@@ -42,71 +42,143 @@
             </Button>
         </StackPanel>
 
-        <Grid Grid.Row="1" x:Name="EditorArea" Visibility="Visible">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        <!-- Row 1: EditorArea (club editor) + ResultsArea (enter results). Both children of the same row -->
+        <Grid Grid.Row="1">
+            <!-- Results entry area (hidden until user chooses Enter Results) -->
+            <StackPanel x:Name="ResultsArea" Visibility="Collapsed" Spacing="12">
+                <!-- Fixed header part -->
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Top">
+                    <StackPanel Orientation="Vertical" Spacing="4">
+                        <TextBlock Text="Date" />
+                        <DatePicker x:Name="ResultsDatePicker" />
+                    </StackPanel>
 
-            <!-- Club editor -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
-                <TextBlock Text="Club:" VerticalAlignment="Center" />
-                <TextBlock x:Name="ShownLabel" Text="0/0" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <StackPanel Orientation="Vertical" Spacing="4">
+                        <TextBlock Text="Club" />
+                        <ComboBox x:Name="ResultsClubCombo" Width="260" SelectionChanged="OnResultsClubChanged" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Vertical" Spacing="4">
+                        <TextBlock Text="Venue" />
+                        <ComboBox x:Name="ResultsVenueCombo" Width="260" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Vertical" VerticalAlignment="Bottom" Spacing="6" Margin="12,0,0,0">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Proceed" Click="OnProceedResultsClicked" Width="90" />
+                            <Button Content="Exit" Click="OnCancelResultsClicked" Width="90" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Per-player entry part (hidden until Proceed) -->
+                <StackPanel x:Name="ResultsEntryPanel" Visibility="Collapsed" Spacing="8" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="Player Name" />
+                            <ComboBox x:Name="PlayerNameCombo" Width="300" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="Partner" />
+                            <ComboBox x:Name="PartnerCombo" Width="300" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="HCP" />
+                            <TextBox x:Name="HcpTextBox" Width="120" PlaceholderText="0-40" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="Result" />
+                            <TextBox x:Name="ResultTextBox" Width="120" PlaceholderText="0-50" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="Position" />
+                            <TextBox x:Name="PositionTextBox" Width="120" PlaceholderText="0-8" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,0">
+                        <Button x:Name="PrevResultButton" Content="◀ Prev" Click="OnPrevResultClicked" Width="100" />
+                        <Button x:Name="NextResultButton" Content="Next ▶" Click="OnNextResultClicked" Width="100" />
+                        <Button x:Name="UpdateResultButton" Content="Update" Click="OnUpdateResultClicked" Width="100" />
+                        <Button x:Name="DeleteResultButton" Content="Delete" Click="OnDeleteResultClicked" Width="100" />
+                        <Button x:Name="ExitResultsButton" Content="Exit" Click="OnCancelResultsClicked" Width="100" />
+                    </StackPanel>
+                </StackPanel>
             </StackPanel>
 
-            <StackPanel Grid.Row="1" Spacing="12" Margin="0,0,0,8" x:Name="ClubEditorPanel">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Short name:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="ShortNameTextBox" Width="200" MaxLength="4" PlaceholderText="4 chars" TextChanged="OnNameFieldsTextChanged" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Long name:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="LongNameTextBox" Width="360" MaxLength="20" PlaceholderText="Up to 20 chars" TextChanged="OnNameFieldsTextChanged" />
-                </StackPanel>
-            </StackPanel>
+            <!-- Existing club editor -->
+            <Grid x:Name="EditorArea" Visibility="Visible">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-            <!-- Club action buttons -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,16" x:Name="ClubButtonsPanel">
-                <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
-                <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
-                <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
-                <Button x:Name="AddPlayerButton" Content="Players" Click="OnAddPlayerClicked" Width="110" />
-                <Button x:Name="LoadFileButton" Content="Bulk Add" Click="OnBulkAddClicked" Width="160" />
-                <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
-            </StackPanel>
-
-            <!-- Player editor (collapsed until Add Player pressed) -->
-            <StackPanel Grid.Row="3" x:Name="PlayerEditorPanel" Visibility="Collapsed" Spacing="12" Margin="0,8,0,8" HorizontalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Code:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="PlayerCodeTextBox" Width="200" MaxLength="6" PlaceholderText="6 digits" />
+                <!-- Club editor -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+                    <TextBlock Text="Club:" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ShownLabel" Text="0/0" VerticalAlignment="Center" FontWeight="SemiBold" />
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Name:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="PlayerNameTextBox" Width="360" MaxLength="20" PlaceholderText="Player name" />
+                <StackPanel Grid.Row="1" Spacing="12" Margin="0,0,0,8" x:Name="ClubEditorPanel">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Short name:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="ShortNameTextBox" Width="200" MaxLength="4" PlaceholderText="4 chars" TextChanged="OnNameFieldsTextChanged" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Long name:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="LongNameTextBox" Width="360" MaxLength="20" PlaceholderText="Up to 20 chars" TextChanged="OnNameFieldsTextChanged" />
+                    </StackPanel>
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Index:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="PlayerIndexTextBox" Width="200" MaxLength="5" PlaceholderText="xx.x" />
+                <!-- Club action buttons -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,16" x:Name="ClubButtonsPanel">
+                    <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
+                    <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="AddPlayerButton" Content="Players" Click="OnAddPlayerClicked" Width="110" />
+                    <Button x:Name="LoadFileButton" Content="Bulk Add" Click="OnBulkAddClicked" Width="160" />
+                    <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Note:" Width="110" VerticalAlignment="Center" />
-                    <TextBox x:Name="PlayerNoteTextBox" Width="360" MaxLength="20" PlaceholderText="Note" />
-                </StackPanel>
+                <!-- Player editor (collapsed until Add Player pressed) -->
+                <StackPanel Grid.Row="3" x:Name="PlayerEditorPanel" Visibility="Collapsed" Spacing="12" Margin="0,8,0,8" HorizontalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Code:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="PlayerCodeTextBox" Width="200" MaxLength="6" PlaceholderText="6 digits" />
+                    </StackPanel>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,0">
-                    <Button x:Name="PrevPlayerButton" Content="◀ Prev Player" Click="OnPrevPlayerClicked" Width="110" />
-                    <Button x:Name="NextPlayerButton" Content="Next Player ▶" Click="OnNextPlayerClicked" Width="110" />
-                    <Button x:Name="UpdatePlayerButton" Content="Update" Click="OnUpdatePlayerClicked" Width="110" />
-                    <Button x:Name="ExitPlayerEditorButton" Content="Exit" Click="OnExitPlayerEditorClicked" Width="110" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Name:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="PlayerNameTextBox" Width="360" MaxLength="20" PlaceholderText="Player name" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Index:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="PlayerIndexTextBox" Width="200" MaxLength="5" PlaceholderText="xx.x" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Note:" Width="110" VerticalAlignment="Center" />
+                        <TextBox x:Name="PlayerNoteTextBox" Width="360" MaxLength="20" PlaceholderText="Note" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,0">
+                        <Button x:Name="PrevPlayerButton" Content="◀ Prev Player" Click="OnPrevPlayerClicked" Width="110" />
+                        <Button x:Name="NextPlayerButton" Content="Next Player ▶" Click="OnNextPlayerClicked" Width="110" />
+                        <Button x:Name="UpdatePlayerButton" Content="Update" Click="OnUpdatePlayerClicked" Width="110" />
+                        <Button x:Name="ExitPlayerEditorButton" Content="Exit" Click="OnExitPlayerEditorClicked" Width="110" />
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
+            </Grid>
         </Grid>
 
         <!-- Status line (bottom) -->
