@@ -1,4 +1,5 @@
-//MainWindow.EnterResults.cs
+
+//MainWindow.cs
 //=============================
 using System;
 using System.Collections.Generic;
@@ -15,9 +16,16 @@ namespace GolfApp1
     {
         private readonly List<ResultRecord> _resultBuffer = new();
         private int _resultIndex = -1;
-        
-        private void OnProceedResultsClicked(object sender, RoutedEventArgs e)
+
+        // Proceed: load any existing results for date/club/venue and show entry panel.
+        private async void OnProceedResultsClicked(object sender, RoutedEventArgs e)
         {
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                return;
+            }
+
             // Validate header
             if (ResultsClubCombo.SelectedItem is null)
             {
@@ -31,16 +39,50 @@ namespace GolfApp1
                 return;
             }
 
-            // Prepare player combos
+            // Prepare player combos (load players)
             var clubShort = ResultsClubCombo.SelectedItem.ToString() ?? string.Empty;
-            _ = LoadPlayersForResultsAsync(clubShort).ContinueWith(_ => { }, TaskScheduler.FromCurrentSynchronizationContext());
+            await LoadPlayersForResultsAsync(clubShort).ConfigureAwait(true);
 
-            // initialize buffer
-            _resultBuffer.Clear();
-            _resultIndex = -1;
+            // load existing results for the same date & club
+            var date = ResultsDatePicker.Date.Date;
+            var venue = ResultsVenueCombo.SelectedItem?.ToString() ?? string.Empty;
 
-            ResultsEntryPanel.Visibility = Visibility.Visible;
-            UpdateStatus("Enter player results. Use Next/Prev to navigate, Update to save entry.");
+            try
+            {
+                var existing = await _db.GetResultsAsync(clubShort, date, date).ConfigureAwait(true);
+                // filter by venue (case-insensitive)
+                var matches = existing.Where(r => string.Equals(r.Venue ?? string.Empty, venue ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                                      .ToList();
+
+                _resultBuffer.Clear();
+                if (matches.Count > 0)
+                {
+                    // use DB results
+                    foreach (var r in matches) _resultBuffer.Add(r);
+                    _resultIndex = 0;
+                    PopulateResultFields();
+                    UpdateStatus($"Loaded {matches.Count} result(s) for {clubShort} @ {venue} on {date:yyyy-MM-dd}.");
+                }
+                else
+                {
+                    // no results yet   start with a single blank entry
+                    _resultBuffer.Add(CreateEmptyResultFromHeader());
+                    _resultIndex = 0;
+                    PopulateResultFields();
+                    UpdateStatus("No existing results found   ready to enter new result.");
+                }
+
+                ResultsEntryPanel.Visibility = Visibility.Visible;
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Failed to load existing results: " + ex.Message);
+                // still show entry panel with a blank record
+                _resultBuffer.Clear();
+                _resultBuffer.Add(CreateEmptyResultFromHeader());
+                _resultIndex = 0;
+                ResultsEntryPanel.Visibility = Visibility.Visible;
+            }
         }
 
         private async Task LoadPlayersForResultsAsync(string clubShort)
@@ -62,27 +104,28 @@ namespace GolfApp1
 
         private void OnNextResultClicked(object sender, RoutedEventArgs e)
         {
+            // Move to next empty record (existing behaviour requested previously)
             if (_resultBuffer.Count == 0)
             {
-                // start a new entry
-                _resultIndex = _resultBuffer.Count;
-                _resultBuffer.Add(CreateEmptyResultFromHeader());
+                UpdateStatus("No entries available. Create a new entry with Update.");
+                return;
             }
-            else if (_resultIndex < _resultBuffer.Count - 1)
+
+            var start = Math.Max(_resultIndex + 1, 0);
+            var found = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName));
+            if (found >= 0)
             {
-                _resultIndex++;
+                _resultIndex = found;
+                PopulateResultFields();
             }
             else
             {
-                // append new blank entry
-                _resultIndex = _resultBuffer.Count;
-                _resultBuffer.Add(CreateEmptyResultFromHeader());
+                UpdateStatus("No next empty record.");
             }
-
-            PopulateResultFields();
         }
 
-        private void OnUpdateResultClicked(object sender, RoutedEventArgs e)
+        // Update (save) current entry into DB
+        private async void OnUpdateResultClicked(object sender, RoutedEventArgs e)
         {
             if (!TryBuildCurrentEntry(out var rec, out var error))
             {
@@ -90,20 +133,62 @@ namespace GolfApp1
                 return;
             }
 
+            // preserve Id if we're editing an existing buffer entry
             if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
             {
-                _resultBuffer[_resultIndex] = rec;
+                rec.Id = _resultBuffer[_resultIndex].Id ?? string.Empty;
             }
             else
             {
-                _resultBuffer.Add(rec);
-                _resultIndex = _resultBuffer.Count - 1;
+                rec.Id = Guid.NewGuid().ToString();
             }
 
-            // persist append to CSV
+            // set PlayerId / PartnerId if available from VM
+            if (_vm is not null)
+            {
+                //var p = _vm.Players.Find(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
+                //I replaced the above line with the following to avoid a warning about FirstOrDefault
+                var p = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
+
+                if (p is not null) rec.PlayerId = p.Id;
+                //var q = _vm.Players.Find(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
+                //I replaced the above line
+                
+                
+                var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
+
+
+
+                if (q is not null) rec.PartnerId = q.Id;
+            }
+
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                return;
+            }
+
             try
             {
-                SaveResultRecordToCsv(rec);
+                var err = await _db.UpsertResultAsync(rec).ConfigureAwait(true);
+                if (err != null)
+                {
+                    UpdateStatus("Save failed: " + err);
+                    return;
+                }
+
+                // update buffer
+                if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
+                {
+                    _resultBuffer[_resultIndex] = rec;
+                }
+                else
+                {
+                    _resultBuffer.Add(rec);
+                    _resultIndex = _resultBuffer.Count - 1;
+                }
+
+                PopulateResultFields();
                 UpdateStatus($"Saved result for '{rec.PlayerName}'.");
             }
             catch (Exception ex)
@@ -112,16 +197,34 @@ namespace GolfApp1
             }
         }
 
-        private void OnDeleteResultClicked(object sender, RoutedEventArgs e)
+        // Delete current entry (buffer + DB if persisted)
+        private async void OnDeleteResultClicked(object sender, RoutedEventArgs e)
         {
-            if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
+            if (_resultIndex < 0 || _resultIndex >= _resultBuffer.Count) return;
+
+            var rec = _resultBuffer[_resultIndex];
+            try
             {
+                if (!string.IsNullOrEmpty(rec.Id) && _db is not null)
+                {
+                    var err = await _db.DeleteResultAsync(rec.Id).ConfigureAwait(true);
+                    if (err != null)
+                    {
+                        UpdateStatus("Delete failed: " + err);
+                        return;
+                    }
+                }
+
                 _resultBuffer.RemoveAt(_resultIndex);
                 if (_resultBuffer.Count == 0) _resultIndex = -1;
                 else if (_resultIndex >= _resultBuffer.Count) _resultIndex = _resultBuffer.Count - 1;
 
                 PopulateResultFields();
-                UpdateStatus("Deleted entry from buffer (CSV not modified).");
+                UpdateStatus("Deleted entry.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Delete failed: " + ex.Message);
             }
         }
 
@@ -146,7 +249,12 @@ namespace GolfApp1
             }
 
             PrevResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex > 0;
-            NextResultButton.IsEnabled = true;
+
+            // Enable Next only if there is a true "next empty" record after the current index.
+            var start = Math.Max(_resultIndex + 1, 0);
+            var hasNextEmpty = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName)) >= 0;
+            NextResultButton.IsEnabled = hasNextEmpty;
+
             UpdateResultButton.IsEnabled = true;
             DeleteResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex >= 0;
         }
@@ -213,29 +321,6 @@ namespace GolfApp1
             rec.Position = pos;
 
             return true;
-        }
-
-        private void SaveResultRecordToCsv(ResultRecord r)
-        {
-            var folder = GetDataFolder();
-            Directory.CreateDirectory(folder);
-            var path = Path.Combine(folder, "results.csv");
-            var header = "Date,Club,Venue,Player,Partner,Hcp,Result,Position";
-            var line = $"{r.Date:yyyy-MM-dd},{EscapeCsv(r.Club)},{EscapeCsv(r.Venue)},{EscapeCsv(r.PlayerName)},{EscapeCsv(r.Partner)},{r.Hcp},{r.Result},{r.Position}";
-            var writeHeader = !File.Exists(path);
-            using var sw = new StreamWriter(path, append: true);
-            if (writeHeader) sw.WriteLine(header);
-            sw.WriteLine(line);
-        }
-
-        private static string EscapeCsv(string s)
-        {
-            if (s is null) return string.Empty;
-            if (s.Contains(',') || s.Contains('"') || s.Contains('\n'))
-            {
-                return "\"" + s.Replace("\"", "\"\"") + "\"";
-            }
-            return s;
         }
     }
 }

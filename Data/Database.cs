@@ -1,3 +1,5 @@
+//Database.cs
+//==============
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -22,7 +24,7 @@ namespace GolfApp1.Data
             _conn = new SqliteConnection(cs);
             await _conn.OpenAsync();
 
-            // Ensure Clubs table exists
+            // Clubs
             var createClubs = @"
 CREATE TABLE IF NOT EXISTS Clubs (
     Id TEXT PRIMARY KEY,
@@ -36,7 +38,7 @@ CREATE TABLE IF NOT EXISTS Clubs (
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // Ensure Players table exists
+            // Players
             var createPlayers = @"
 CREATE TABLE IF NOT EXISTS Players (
     Id TEXT PRIMARY KEY,
@@ -53,7 +55,7 @@ CREATE TABLE IF NOT EXISTS Players (
                 await cmd2.ExecuteNonQueryAsync();
             }
 
-            // Ensure Results table exists
+            // Results
             var createResults = @"
 CREATE TABLE IF NOT EXISTS Results (
     Id TEXT PRIMARY KEY,
@@ -76,7 +78,6 @@ CREATE TABLE IF NOT EXISTS Results (
                 await cmd3.ExecuteNonQueryAsync();
             }
 
-            // Index for common queries by club + date
             using (var idxCmd = _conn.CreateCommand())
             {
                 idxCmd.CommandText = "CREATE INDEX IF NOT EXISTS IDX_Results_Club_Date ON Results(ClubShortName, Date);";
@@ -84,8 +85,7 @@ CREATE TABLE IF NOT EXISTS Results (
             }
         }
 
-        // ------- Clubs / Players -------
-
+        // Clubs
         public async Task<List<Club>> GetAllClubsAsync()
         {
             var list = new List<Club>();
@@ -126,6 +126,7 @@ VALUES ($id, $short, $long, $players);";
             await tran.CommitAsync();
         }
 
+        // Players
         public async Task<(bool Success, string? Error)> InsertPlayerAsync(Player player)
         {
             if (player is null) throw new ArgumentNullException(nameof(player));
@@ -264,8 +265,7 @@ WHERE Id = $id;";
             return list;
         }
 
-        // ------- Results persistence -------
-
+        // Results
         public async Task<string?> UpsertResultAsync(Models.ResultRecord r)
         {
             if (r is null) throw new ArgumentNullException(nameof(r));
@@ -352,6 +352,32 @@ VALUES ($id, $date, $club, $venue, $playerId, $partnerId, $playerName, $partnerN
             }
 
             return list;
+        }
+
+        public async Task<string?> DeleteResultAsync(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "DELETE FROM Results WHERE Id = $id;";
+                cmd.Parameters.AddWithValue("$id", id);
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
         }
 
         public void Dispose()
