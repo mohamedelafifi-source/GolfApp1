@@ -15,17 +15,7 @@ namespace GolfApp1
     {
         private readonly List<ResultRecord> _resultBuffer = new();
         private int _resultIndex = -1;
-
-        // Header actions
-        private void OnCancelResultsClicked(object sender, RoutedEventArgs e)
-        {
-            // hide results UI and return to main (menus)
-            ResultsEntryPanel.Visibility = Visibility.Collapsed;
-            ResultsArea.Visibility = Visibility.Collapsed;
-            EditorArea.Visibility = Visibility.Visible;
-            UpdateStatus("Results entry cancelled.");
-        }
-
+        
         private void OnProceedResultsClicked(object sender, RoutedEventArgs e)
         {
             // Validate header

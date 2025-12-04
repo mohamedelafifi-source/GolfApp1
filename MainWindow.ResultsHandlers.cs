@@ -134,5 +134,44 @@ namespace GolfApp1
             OnImportPdfClicked(this, new RoutedEventArgs());
             return Task.CompletedTask;
         }
+
+        // Cancel/Exit from Results entry — return to main menu with an empty screen
+        private void OnCancelResultsClicked(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Hide results UI and ensure club editor is hidden so the main area is empty
+                if (ResultsEntryPanel is not null) ResultsEntryPanel.Visibility = Visibility.Collapsed;
+                if (ResultsArea is not null) ResultsArea.Visibility = Visibility.Collapsed;
+                if (EditorArea is not null) EditorArea.Visibility = Visibility.Collapsed;
+
+                // Clear header selections
+                if (ResultsClubCombo is not null) ResultsClubCombo.SelectedIndex = -1;
+                if (ResultsVenueCombo is not null) ResultsVenueCombo.SelectedIndex = -1;
+                if (ResultsDatePicker is not null) ResultsDatePicker.Date = DateTimeOffset.MinValue;
+
+                // Clear lower-entry fields
+                if (PlayerNameCombo is not null) PlayerNameCombo.SelectedIndex = -1;
+                if (PartnerCombo is not null) PartnerCombo.SelectedIndex = -1;
+                if (HcpTextBox is not null) HcpTextBox.Text = string.Empty;
+                if (ResultTextBox is not null) ResultTextBox.Text = string.Empty;
+                if (PositionTextBox is not null) PositionTextBox.Text = string.Empty;
+
+                // Reset buffer/state
+                _resultBuffer.Clear();
+                _resultIndex = -1;
+
+                // Disable proceed until header is filled next time
+                if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = false;
+
+                UpdateStatus("Returned to main menu.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Error closing results UI: " + ex.Message);
+            }
+        }
+        
     }
+
 }
