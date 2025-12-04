@@ -65,11 +65,11 @@ namespace GolfApp1
                 }
                 else
                 {
-                    // no results yet   start with a single blank entry
+                    // no results yet — start with a single blank entry
                     _resultBuffer.Add(CreateEmptyResultFromHeader());
                     _resultIndex = 0;
                     PopulateResultFields();
-                    UpdateStatus("No existing results found   ready to enter new result.");
+                    UpdateStatus("No existing results found — ready to enter new result.");
                 }
 
                 ResultsEntryPanel.Visibility = Visibility.Visible;
@@ -104,7 +104,6 @@ namespace GolfApp1
 
         private void OnNextResultClicked(object sender, RoutedEventArgs e)
         {
-            // Move to next empty record (existing behaviour requested previously)
             if (_resultBuffer.Count == 0)
             {
                 UpdateStatus("No entries available. Create a new entry with Update.");
@@ -112,15 +111,25 @@ namespace GolfApp1
             }
 
             var start = Math.Max(_resultIndex + 1, 0);
-            var found = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName));
-            if (found >= 0)
+
+            // 1) prefer next empty record
+            var nextEmpty = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName));
+            if (nextEmpty >= 0)
             {
-                _resultIndex = found;
+                _resultIndex = nextEmpty;
+                PopulateResultFields();
+                return;
+            }
+
+            // 2) otherwise move to next existing record if available
+            if (_resultIndex < _resultBuffer.Count - 1)
+            {
+                _resultIndex++;
                 PopulateResultFields();
             }
             else
             {
-                UpdateStatus("No next empty record.");
+                UpdateStatus("No next record.");
             }
         }
 
@@ -146,19 +155,9 @@ namespace GolfApp1
             // set PlayerId / PartnerId if available from VM
             if (_vm is not null)
             {
-                //var p = _vm.Players.Find(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
-                //I replaced the above line with the following to avoid a warning about FirstOrDefault
                 var p = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
-
                 if (p is not null) rec.PlayerId = p.Id;
-                //var q = _vm.Players.Find(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
-                //I replaced the above line
-                
-                
-                var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
-
-
-
+                var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
                 if (q is not null) rec.PartnerId = q.Id;
             }
 
@@ -250,12 +249,13 @@ namespace GolfApp1
 
             PrevResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex > 0;
 
-            // Enable Next only if there is a true "next empty" record after the current index.
+            // Enable Next if there is either a next empty or a next existing record
             var start = Math.Max(_resultIndex + 1, 0);
             var hasNextEmpty = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName)) >= 0;
-            NextResultButton.IsEnabled = hasNextEmpty;
+            var hasNextRecord = _resultIndex < _resultBuffer.Count - 1;
+            NextResultButton.IsEnabled = hasNextEmpty || hasNextRecord;
 
-            UpdateResultButton.IsEnabled = true;
+            UpdateResultButton.IsEnabled = _resultBuffer.Count >= 0; // allow saving even for blank
             DeleteResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex >= 0;
         }
 
