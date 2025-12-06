@@ -1,4 +1,7 @@
 
+
+//MainWindow.PdfImport.cs
+//============================
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -48,7 +51,7 @@ namespace GolfApp1
             }
         }
 
-        // Preview-only (does not save)
+        // Preview-only (does not save) — now shows Name | Points | Handicap for review.
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -65,21 +68,62 @@ namespace GolfApp1
                     return;
                 }
 
+                // Build simple header + rows showing only Name | Points | Handicap
                 var panel = new StackPanel { Spacing = 6 };
-                panel.Children.Add(new TextBlock
-                {
-                    Text = $"Parsed {parsed.Count} lines. Sample (first {Math.Min(50, parsed.Count)}):",
-                    TextWrapping = TextWrapping.Wrap,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-                });
 
-                foreach (var p in parsed.Take(50))
+                // Header row
+                var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                header.Children.Add(new TextBlock
                 {
-                    panel.Children.Add(new TextBlock
+                    Text = "Name",
+                    Width = 420,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                header.Children.Add(new TextBlock
+                {
+                    Text = "Points",
+                    Width = 80,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center
+                });
+                header.Children.Add(new TextBlock
+                {
+                    Text = "Handicap",
+                    Width = 100,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center
+                });
+                panel.Children.Add(header);
+
+                // Rows (limit to avoid very tall dialog; user can re-run if needed)
+                var toShow = parsed.Take(200).ToList();
+                foreach (var p in toShow)
+                {
+                    var name = string.IsNullOrWhiteSpace(p.Name) ? "—" : p.Name;
+                    var points = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
+                    var hc = string.IsNullOrWhiteSpace(p.HandicapIndex) ? "—" : p.HandicapIndex;
+
+                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                    row.Children.Add(new TextBlock
                     {
-                        Text = $"Page {p.Page}  Confidence {p.Confidence:F2}  →  {p.RawLine}",
+                        Text = name,
+                        Width = 420,
                         TextWrapping = TextWrapping.Wrap
                     });
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = points,
+                        Width = 80,
+                        TextAlignment = TextAlignment.Center
+                    });
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = hc,
+                        Width = 100,
+                        TextAlignment = TextAlignment.Center
+                    });
+                    panel.Children.Add(row);
                 }
 
                 var scroll = new ScrollViewer
@@ -91,7 +135,7 @@ namespace GolfApp1
 
                 var previewDlg = new ContentDialog
                 {
-                    Title = "PDF Parse Preview",
+                    Title = $"PDF Parse Preview — {file.Name}",
                     Content = scroll,
                     PrimaryButtonText = "Close",
                     CloseButtonText = null,

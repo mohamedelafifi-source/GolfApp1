@@ -1,4 +1,5 @@
-
+//ResultsImportService.cs
+//==========================
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -96,12 +97,32 @@ namespace GolfApp1.Services
 
             if (string.IsNullOrWhiteSpace(line)) return rec;
 
+            // 1) Labelled pattern e.g. "Name : Mohamed Kabbani . Score 42 pts , Handicap (17) ."
+            var labelledRx = new Regex(
+                @"Name\s*[:\-]\s*(?<name>[\w\.\-,'\u00C0-\u017F\s]{2,80})\s*[\.\,]?\s*Score\s*[:\-]?\s*(?<score>-?\d+)(?:\s*pts?)?\s*[,;]?\s*Handicap\s*(?:[:\-]?\s*)\(?\s*(?<index>\d{1,2}(?:\.\d)?)\s*\)?",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var mLab = labelledRx.Match(line);
+            if (mLab.Success)
+            {
+                rec.Name = mLab.Groups["name"].Value.Trim();
+                rec.Result = mLab.Groups["score"].Value.Trim();
+                rec.HandicapIndex = mLab.Groups["index"].Value.Trim();
+
+                var conf = 0.0;
+                if (!string.IsNullOrWhiteSpace(rec.Name)) conf += 0.5;
+                if (!string.IsNullOrWhiteSpace(rec.HandicapIndex)) conf += 0.25;
+                if (!string.IsNullOrWhiteSpace(rec.Result)) conf += 0.25;
+                rec.Confidence = Math.Min(1.0, conf);
+                return rec;
+            }
+
+            // 2) Reuse earlier flexible patterns (keep compatibility)
             var patterns = new[]
             {
-                new Regex(@"^\s*(?:\d+\s+)?(?<name>[A-Za-z\.\-,'\u00C0-\u017F\s]{3,60})\s+(?<index>\d{1,2}(?:\.\d)?)\s+(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled),
-                new Regex(@"^\s*(?<name>[A-Za-z\.\-,'\u00C0-\u017F\s]{3,60})\s*\(\s*(?<index>\d{1,2}(?:\.\d)?)\s*\)\s+(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled),
-                new Regex(@"^\s*(?<name>.+?)\s{2,}(?<index>\d{1,2}(?:\.\d)?)\s{2,}(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled),
-                new Regex(@"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<score>-?\d+|WD|DQ|DNS)\s+(?<index>\d{1,2}(?:\.\d)?)\s*$", RegexOptions.Compiled),
+                new Regex(@"^\s*(?:\d+\s+)?(?<name>[A-Za-z\.\-,'\u00C0-\u017F\s]{3,60})\s+(?<index>\d{1,2}(?:\.\d)?)\s+(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new Regex(@"^\s*(?<name>[A-Za-z\.\-,'\u00C0-\u017F\s]{3,60})\s*\(\s*(?<index>\d{1,2}(?:\.\d)?)\s*\)\s+(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new Regex(@"^\s*(?<name>.+?)\s{2,}(?<index>\d{1,2}(?:\.\d)?)\s{2,}(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+                new Regex(@"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<score>-?\d+|WD|DQ|DNS)\s+(?<index>\d{1,2}(?:\.\d)?)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
             };
 
             foreach (var rx in patterns)
@@ -122,13 +143,15 @@ namespace GolfApp1.Services
                 return rec;
             }
 
+            // 3) Token fallback: last token = score, second last = handicap/index
             var tokens = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (tokens.Length >= 2)
             {
-                var last = tokens[^1];
-                var secondLast = tokens.Length >= 2 ? tokens[^2] : string.Empty;
+                var last = tokens[^1].Trim().TrimEnd('.', ',');
+                var secondLast = tokens.Length >= 2 ? tokens[^2].Trim().TrimEnd('.', ',') : string.Empty;
 
-                if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$") && Regex.IsMatch(secondLast, @"^\d{1,2}(?:\.\d)?$"))
+                if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase) &&
+                    Regex.IsMatch(secondLast, @"^\d{1,2}(?:\.\d)?$"))
                 {
                     rec.Result = last;
                     rec.HandicapIndex = secondLast;
@@ -138,6 +161,7 @@ namespace GolfApp1.Services
                 }
             }
 
+            // 4) As last resort return line as name with low confidence
             rec.Name = line.Trim();
             rec.Confidence = 0.1;
             return rec;
