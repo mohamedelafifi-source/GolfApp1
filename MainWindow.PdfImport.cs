@@ -1,10 +1,10 @@
 
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage;
@@ -51,7 +51,8 @@ namespace GolfApp1
             }
         }
 
-        // Preview-only (does not save) — now shows Name | Points | Handicap for review.
+        // Preview-only (does not save) — now shows only lines that start with a number and contain a trailing ")"
+        // Extracts Name, Points and Handicap and ignores anything after the closing parenthesis.
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -68,10 +69,35 @@ namespace GolfApp1
                     return;
                 }
 
-                // Build simple header + rows showing only Name | Points | Handicap
+                // Regex: start with number, then name, then points, optional "pts", then "(" handicap ")".
+                // We stop parsing at the closing parenthesis and ignore anything that follows.
+                var entryRx = new Regex(
+                    @"^\s*\d+\s+(?<name>.+?)\s+(?<points>\d+)(?:\s*pts?)?\s*\(\s*(?<hc>\d{1,2}(?:\.\d)?)\s*\)",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+                // Filter parsed lines using RawLine (the original extracted text)
+                var matches = parsed
+                    .Select(p => p.RawLine ?? string.Empty)
+                    .Select(line => new { Line = line, Match = entryRx.Match(line) })
+                    .Where(x => x.Match.Success)
+                    .Select(x => new
+                    {
+                        Name = Regex.Replace(x.Match.Groups["name"].Value.Trim(), @"\s+", " "),
+                        Points = x.Match.Groups["points"].Value.Trim(),
+                        Handicap = x.Match.Groups["hc"].Value.Trim()
+                    })
+                    .ToList();
+
+                if (matches.Count == 0)
+                {
+                    UpdateStatus("No matching result lines found (format: leading number and closing ')' ).");
+                    await ShowErrorAsync("No Matches", "No lines matched the required format (e.g. \"1 Mohamed Kabbani 42 pts (17)\").");
+                    return;
+                }
+
+                // Build UI: header + rows with Name | Points | Handicap
                 var panel = new StackPanel { Spacing = 6 };
 
-                // Header row
                 var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
                 header.Children.Add(new TextBlock
                 {
@@ -96,30 +122,25 @@ namespace GolfApp1
                 });
                 panel.Children.Add(header);
 
-                // Rows (limit to avoid very tall dialog; user can re-run if needed)
-                var toShow = parsed.Take(200).ToList();
-                foreach (var p in toShow)
+                // Show extracted rows (limit to 500 to keep dialog responsive)
+                foreach (var p in matches.Take(500))
                 {
-                    var name = string.IsNullOrWhiteSpace(p.Name) ? "—" : p.Name;
-                    var points = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
-                    var hc = string.IsNullOrWhiteSpace(p.HandicapIndex) ? "—" : p.HandicapIndex;
-
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
                     row.Children.Add(new TextBlock
                     {
-                        Text = name,
+                        Text = p.Name,
                         Width = 420,
                         TextWrapping = TextWrapping.Wrap
                     });
                     row.Children.Add(new TextBlock
                     {
-                        Text = points,
+                        Text = p.Points,
                         Width = 80,
                         TextAlignment = TextAlignment.Center
                     });
                     row.Children.Add(new TextBlock
                     {
-                        Text = hc,
+                        Text = p.Handicap,
                         Width = 100,
                         TextAlignment = TextAlignment.Center
                     });
@@ -130,7 +151,7 @@ namespace GolfApp1
                 {
                     Content = panel,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    MaxHeight = 540
+                    MaxHeight = 640
                 };
 
                 var previewDlg = new ContentDialog
@@ -149,7 +170,7 @@ namespace GolfApp1
                 }
 
                 await previewDlg.ShowAsync().AsTask();
-                UpdateStatus($"Previewed {parsed.Count} parsed lines from '{file.Name}'. No data was saved.");
+                UpdateStatus($"Previewed {matches.Count} matching lines from '{file.Name}'. No data was saved.");
             }
             catch (Exception ex)
             {
