@@ -57,7 +57,6 @@ namespace GolfApp1.Services
                 var bucket = buckets.FirstOrDefault(b => Math.Abs(b.Y - y) <= RowTolerance);
                 if (bucket.Y == 0 && buckets.Count == 0)
                 {
-                    // explicit ValueTuple.Create to avoid ambiguous collection-initializer conversion errors
                     buckets.Add((y, new List<(double X, string Text)> { ValueTuple.Create(x, text) }));
                 }
                 else if (Math.Abs(bucket.Y - y) <= RowTolerance)
@@ -98,7 +97,7 @@ namespace GolfApp1.Services
 
             if (string.IsNullOrWhiteSpace(line)) return rec;
 
-            // 1) Labelled pattern e.g. "Name : Mohamed Kabbani . Score 42 pts , Handicap (17) ."
+            // Labelled pattern e.g. "Name : Mohamed Kabbani . Score 42 pts , Handicap (17) ."
             var labelledRx = new Regex(
                 @"Name\s*[:\-]\s*(?<name>[\w\.\-,'\u00C0-\u017F\s]{2,80})\s*[\.\,]?\s*Score\s*[:\-]?\s*(?<score>-?\d+)(?:\s*pts?)?\s*[,;]?\s*Handicap\s*(?:[:\-]?\s*)\(?\s*(?<index>\d{1,2}(?:\.\d)?)\s*\)?",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -117,8 +116,7 @@ namespace GolfApp1.Services
                 return rec;
             }
 
-            // NEW: direct pattern for lines like "1 Mohamed Kabbani 42 pts (17)" or
-            // "Mohamed Kabbani 42 (17)" — score before parenthesized handicap.
+            // Direct pattern for "<pos?> <Name> <Score> (Handicap)"
             var scoreThenParenRx = new Regex(
                 @"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<score>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<index>[+-]?\d{1,2}(?:\.\d)?)\s*\)\s*$",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -137,7 +135,7 @@ namespace GolfApp1.Services
                 return rec;
             }
 
-            // 2) Reuse earlier flexible patterns (keep compatibility)
+            // Flexible legacy patterns
             var patterns = new[]
             {
                 new Regex(@"^\s*(?:\d+\s+)?(?<name>[A-Za-z\.\-,'\u00C0-\u017F\s]{3,60})\s+(?<index>\d{1,2}(?:\.\d)?)\s+(?<score>-?\d+|WD|DQ|DNS)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
@@ -164,7 +162,7 @@ namespace GolfApp1.Services
                 return rec;
             }
 
-            // 3) Token fallback: last token = score, second last = handicap/index
+            // Token fallback
             var tokens = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (tokens.Length >= 2)
             {
@@ -182,7 +180,6 @@ namespace GolfApp1.Services
                 }
             }
 
-            // 4) As last resort return line as name with low confidence
             rec.Name = line.Trim();
             rec.Confidence = 0.1;
             return rec;

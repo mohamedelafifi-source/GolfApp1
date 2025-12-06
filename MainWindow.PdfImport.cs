@@ -20,11 +20,9 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
-        // Set to true if you want the preview TSV to be selected in Explorer after parsing.
-        // Default: false to avoid switching focus away from the app.
+        // Set to true to select the preview TSV in Explorer after parsing.
         private readonly bool _openExplorerAfterExport = false;
 
-        // Called from Results menu.
         private async void OnImportPdfClicked(object sender, RoutedEventArgs e)
         {
             UpdateStatus("Select PDF to preview...");
@@ -39,14 +37,12 @@ namespace GolfApp1
             await PreviewPdfFileAsync(file);
         }
 
-        // Helper: pick a single file with the given extensions (returns null if cancelled or fails).
         private async Task<StorageFile?> PickSingleFileAsync(string[] extensions)
         {
             var picker = new FileOpenPicker();
             foreach (var ext in extensions) picker.FileTypeFilter.Add(ext);
             picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
 
-            // Attach to the WinUI window (required on desktop)
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -60,10 +56,7 @@ namespace GolfApp1
             }
         }
 
-        // Preview-only — show only lines that start with a number and contain a trailing ")".
-        // Extract Name, Points and Handicap (handicap shown without parentheses).
-        // Writes two temp files for sharing: raw parsed lines and extracted preview lines,
-        // opens Explorer to the temp folder (optional), and allows importing selected rows into the database.
+        // Preview-only. Extracts Name, Points, Handicap and shows a selectable import UI.
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -80,100 +73,97 @@ namespace GolfApp1
                     return;
                 }
 
-                // write raw parsed lines to temp file so you can copy/upload them
+                // Temp folder + raw lines dump for inspection
                 var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
                 Directory.CreateDirectory(tempDir);
                 var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
                 File.WriteAllLines(rawPath, parsed.Select(p => p.RawLine ?? string.Empty));
 
-                // Core regex: operate on truncated text up to first ')' to ignore trailing "Last Nine Holes" etc.
+                // Regexes
                 var truncatedEntryRx = new Regex(
                     @"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<points>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<hc>[+-]?\d{1,2}(?:\.\d)?)\s*\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
                 var parAny = new Regex(@"\((?<inside>[^)]*)\)", RegexOptions.Compiled);
 
-                // Build extracted list (Name, Points, Handicap, Raw, Position)
-                var extracted = parsed
-                    .Select(p => new { Raw = (p.RawLine ?? string.Empty).Trim(), Parsed = p })
-                    .Where(x => Regex.IsMatch(x.Raw, @"^\s*\d") && x.Raw.Contains(')'))
-                    .Select(x =>
+                // Build concrete list to guarantee reliable UI access
+                var extractedRows = new List<(string Name, string Points, string Handicap, string Raw, int Position)>();
+
+                foreach (var p in parsed)
+                {
+                    var raw = (p.RawLine ?? string.Empty).Trim();
+                    if (!Regex.IsMatch(raw, @"^\s*\d") || !raw.Contains(')')) continue;
+
+                    var idx = raw.IndexOf(')');
+                    var truncated = idx >= 0 ? raw.Substring(0, idx + 1) : raw;
+
+                    var m = truncatedEntryRx.Match(truncated);
+                    if (m.Success)
                     {
-                        var idx = x.Raw.IndexOf(')');
-                        var truncated = idx >= 0 ? x.Raw.Substring(0, idx + 1) : x.Raw;
+                        var name = Regex.Replace(m.Groups["name"].Value.Trim(), @"\s+", " ");
+                        var points = m.Groups["points"].Value.Trim();
+                        var hc = m.Groups["hc"].Value.Trim();
+                        var hcDisplay = hc.StartsWith("+") ? hc.Substring(1) : hc;
+                        var posMatch = Regex.Match(raw, @"^\s*(\d+)");
+                        var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                        extractedRows.Add((name, points, hcDisplay, raw, pos));
+                        continue;
+                    }
 
-                        var m = truncatedEntryRx.Match(truncated);
-                        if (m.Success)
+                    var par = parAny.Match(truncated);
+                    if (par.Success)
+                    {
+                        var inside = par.Groups["inside"].Value;
+                        var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
+                        var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
+
+                        var before = truncated.Substring(0, par.Index).Trim();
+                        var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                        string pointsToken = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
+                        string nameToken = Regex.Replace(before, @"^\d+\s*", "").Trim();
+
+                        if (tokens.Length >= 2)
                         {
-                            var name = Regex.Replace(m.Groups["name"].Value.Trim(), @"\s+", " ");
-                            var points = m.Groups["points"].Value.Trim();
-                            var hc = m.Groups["hc"].Value.Trim();
-                            var hcDisplay = hc.StartsWith("+") ? hc.Substring(1) : hc;
-
-                            var posMatch = Regex.Match(x.Raw, @"^\s*(\d+)");
-                            var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
-
-                            return new { Name = name, Points = points, Handicap = hcDisplay, Raw = x.Raw, Position = pos };
-                        }
-
-                        var par = parAny.Match(truncated);
-                        if (par.Success)
-                        {
-                            var inside = par.Groups["inside"].Value;
-                            var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
-                            var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
-
-                            var before = truncated.Substring(0, par.Index).Trim();
-                            var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                            string pointsToken = string.IsNullOrWhiteSpace(x.Parsed.Result) ? "—" : x.Parsed.Result;
-                            string nameToken = Regex.Replace(before, @"^\d+\s*", "").Trim();
-
-                            if (tokens.Length >= 2)
+                            var last = tokens[^1].Trim().TrimEnd('.', ',');
+                            if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase))
                             {
-                                var last = tokens[^1].Trim().TrimEnd('.', ',');
-                                if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase))
-                                {
-                                    pointsToken = last;
-                                    var nameParts = tokens.Skip(1).Take(tokens.Length - 2).ToArray();
-                                    nameToken = nameParts.Length > 0 ? string.Join(' ', nameParts) : Regex.Replace(before, @"^\d+\s*", "").Trim();
-                                }
+                                pointsToken = last;
+                                var nameParts = tokens.Skip(1).Take(tokens.Length - 2).ToArray();
+                                nameToken = nameParts.Length > 0 ? string.Join(' ', nameParts) : Regex.Replace(before, @"^\d+\s*", "").Trim();
                             }
-
-                            var posMatch = Regex.Match(x.Raw, @"^\s*(\d+)");
-                            var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
-
-                            var nameNormalized = string.IsNullOrWhiteSpace(x.Parsed.Name) ? Regex.Replace(nameToken, @"\s+", " ").Trim() : x.Parsed.Name;
-                            return new { Name = Regex.Replace(nameNormalized, @"\s+", " "), Points = pointsToken, Handicap = hcFound, Raw = x.Raw, Position = pos };
                         }
 
-                        var fallbackName = string.IsNullOrWhiteSpace(x.Parsed.Name) ? Regex.Replace(truncated, @"\s+", " ").Trim() : x.Parsed.Name;
-                        var fallbackPoints = string.IsNullOrWhiteSpace(x.Parsed.Result) ? "—" : x.Parsed.Result;
-                        var fallbackHc = string.IsNullOrWhiteSpace(x.Parsed.HandicapIndex) ? "—" : x.Parsed.HandicapIndex.TrimStart('+');
-                        var posFallback = Regex.Match(x.Raw, @"^\s*(\d+)").Success ? int.Parse(Regex.Match(x.Raw, @"^\s*(\d+)").Groups[1].Value, CultureInfo.InvariantCulture) : 0;
-                        return new { Name = fallbackName, Points = fallbackPoints, Handicap = fallbackHc, Raw = x.Raw, Position = posFallback };
-                    })
-                    .ToList();
+                        var posMatch = Regex.Match(raw, @"^\s*(\d+)");
+                        var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                        var nameNormalized = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(nameToken, @"\s+", " ").Trim() : p.Name;
+                        extractedRows.Add((Regex.Replace(nameNormalized, @"\s+", " "), pointsToken, hcFound, raw, pos));
+                        continue;
+                    }
 
-                // write extracted preview lines to temp file (tab-separated) for sharing
+                    // fallback
+                    var fallbackName = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(truncated, @"\s+", " ").Trim() : p.Name;
+                    var fallbackPoints = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
+                    var fallbackHc = string.IsNullOrWhiteSpace(p.HandicapIndex) ? "—" : p.HandicapIndex.TrimStart('+');
+                    var posFallbackMatch = Regex.Match(raw, @"^\s*(\d+)");
+                    var posFallback = posFallbackMatch.Success ? int.Parse(posFallbackMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                    extractedRows.Add((fallbackName, fallbackPoints, fallbackHc, raw, posFallback));
+                }
+
+                // write preview TSV
                 var previewPath = Path.Combine(tempDir, $"parsed_preview_{DateTime.Now:yyyyMMdd_HHmmss}.tsv");
                 File.WriteAllLines(previewPath, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
-                    .Concat(extracted.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
+                    .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
 
-                // open explorer with the temp folder selected so you can copy/upload the files
                 if (_openExplorerAfterExport)
                 {
                     try
                     {
                         Process.Start(new ProcessStartInfo("explorer", $"/select,\"{previewPath}\"") { UseShellExecute = true });
                     }
-                    catch
-                    {
-                        // ignore explorer launch failures
-                    }
+                    catch { }
                 }
 
-                // Build UI: header + rows with checkbox, Name | Points | Handicap
+                // Build UI
                 var panel = new StackPanel { Spacing = 6 };
                 var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
                 header.Children.Add(new TextBlock { Text = "Import", Width = 60, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -183,15 +173,19 @@ namespace GolfApp1
                 panel.Children.Add(header);
 
                 var checkBoxes = new List<CheckBox>();
-                foreach (var e in extracted.Take(500))
+                foreach (var e in extractedRows.Take(500))
                 {
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-                    var cb = new CheckBox { IsChecked = true, Width = 60, Tag = e }; // selected by default
+                    var cb = new CheckBox { IsChecked = true, Width = 60, Tag = e }; // tuple in Tag
                     checkBoxes.Add(cb);
                     row.Children.Add(cb);
+
                     row.Children.Add(new TextBlock { Text = e.Name, Width = 340, TextWrapping = TextWrapping.Wrap });
                     row.Children.Add(new TextBlock { Text = e.Points, Width = 80, TextAlignment = TextAlignment.Center });
-                    row.Children.Add(new TextBlock { Text = e.Handicap, Width = 100, TextAlignment = TextAlignment.Center });
+
+                    var hcText = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—" ? "—" : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
+                    row.Children.Add(new TextBlock { Text = hcText, Width = 100, TextAlignment = TextAlignment.Center });
+
                     panel.Children.Add(row);
                 }
 
@@ -222,7 +216,6 @@ namespace GolfApp1
                         return;
                     }
 
-                    // Determine import header values (use existing header controls if set)
                     var importDate = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date;
                     var importClub = ResultsClubCombo?.SelectedItem?.ToString() ?? string.Empty;
                     var importVenue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
@@ -233,29 +226,11 @@ namespace GolfApp1
                     foreach (var cb in checkBoxes)
                     {
                         if (cb.IsChecked != true) continue;
-                        var tagObj = cb.Tag;
+                        var tag = ((string Name, string Points, string Handicap, string Raw, int Position))cb.Tag;
                         try
                         {
-                            // Read fields from anonymous-tag object safely
-                            string tagName = Convert.ToString(tagObj?.GetType().GetProperty("Name")?.GetValue(tagObj)) ?? string.Empty;
-                            string tagPoints = Convert.ToString(tagObj?.GetType().GetProperty("Points")?.GetValue(tagObj)) ?? string.Empty;
-                            string tagHandicap = Convert.ToString(tagObj?.GetType().GetProperty("Handicap")?.GetValue(tagObj)) ?? string.Empty;
-                            var posProp = tagObj?.GetType().GetProperty("Position")?.GetValue(tagObj);
-                            int posVal = 0;
-                            if (posProp != null) int.TryParse(posProp.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out posVal);
-
-                            // Parse numeric values explicitly (no use of 'out var' in conditional)
-                            int hParsed = 0;
-                            if (!int.TryParse(tagHandicap, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out hParsed))
-                            {
-                                hParsed = 0;
-                            }
-
-                            int sParsed = 0;
-                            if (!int.TryParse(tagPoints, NumberStyles.Integer, CultureInfo.InvariantCulture, out sParsed))
-                            {
-                                sParsed = 0;
-                            }
+                            int.TryParse(tag.Handicap, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var hParsed);
+                            int.TryParse(tag.Points, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sParsed);
 
                             var rec = new ResultRecord
                             {
@@ -263,14 +238,13 @@ namespace GolfApp1
                                 Date = importDate,
                                 Club = importClub,
                                 Venue = importVenue,
-                                PlayerName = tagName,
+                                PlayerName = tag.Name,
                                 Partner = string.Empty,
                                 Hcp = hParsed,
                                 Result = sParsed,
-                                Position = posVal
+                                Position = tag.Position
                             };
 
-                            // Try to resolve PlayerId from VM if possible
                             if (_vm is not null)
                             {
                                 var player = _vm.Players.FirstOrDefault(p => string.Equals(p.Name, rec.PlayerName, StringComparison.Ordinal));
