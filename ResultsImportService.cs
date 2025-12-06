@@ -1,3 +1,4 @@
+
 //ResultsImportService.cs
 //==========================
 using System;
@@ -107,6 +108,26 @@ namespace GolfApp1.Services
                 rec.Name = mLab.Groups["name"].Value.Trim();
                 rec.Result = mLab.Groups["score"].Value.Trim();
                 rec.HandicapIndex = mLab.Groups["index"].Value.Trim();
+
+                var conf = 0.0;
+                if (!string.IsNullOrWhiteSpace(rec.Name)) conf += 0.5;
+                if (!string.IsNullOrWhiteSpace(rec.HandicapIndex)) conf += 0.25;
+                if (!string.IsNullOrWhiteSpace(rec.Result)) conf += 0.25;
+                rec.Confidence = Math.Min(1.0, conf);
+                return rec;
+            }
+
+            // NEW: direct pattern for lines like "1 Mohamed Kabbani 42 pts (17)" or
+            // "Mohamed Kabbani 42 (17)" — score before parenthesized handicap.
+            var scoreThenParenRx = new Regex(
+                @"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<score>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<index>[+-]?\d{1,2}(?:\.\d)?)\s*\)\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var mScoreParen = scoreThenParenRx.Match(line);
+            if (mScoreParen.Success)
+            {
+                rec.Name = mScoreParen.Groups["name"].Value.Trim();
+                rec.Result = mScoreParen.Groups["score"].Value.Trim();
+                rec.HandicapIndex = mScoreParen.Groups["index"].Value.Trim();
 
                 var conf = 0.0;
                 if (!string.IsNullOrWhiteSpace(rec.Name)) conf += 0.5;

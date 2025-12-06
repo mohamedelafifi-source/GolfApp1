@@ -1,4 +1,3 @@
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -52,7 +51,7 @@ namespace GolfApp1
         }
 
         // Preview-only — show only lines that start with a number and contain a trailing ")".
-        // Extract Name, Points and Handicap (show handicap in parentheses).
+        // Extract Name, Points and Handicap (handicap shown without parentheses).
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -70,12 +69,13 @@ namespace GolfApp1
                 }
 
                 // Pattern: starts with position number, name, points (or WD/DQ/DNS), then (handicap)
-                // Notes:
-                //  - points group accepts negative numbers or WD/DQ/DNS
-                //  - hc group accepts optional sign and leading zeros, e.g. -01 or 01 or 17 or 17.5
+                // Points accepts negative or special tokens; hc accepts optional sign/leading zeros.
                 var entryRx = new Regex(
                     @"^\s*\d+\s+(?<name>.+?)\s+(?<points>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<hc>[+-]?\d{1,2}(?:\.\d)?)\s*\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+                // Flexible parenthesis extractor (capture whatever is inside first parentheses)
+                var parAny = new Regex(@"\((?<inside>[^)]*)\)");
 
                 // Filter parsed lines: must start with number and contain a closing parenthesis.
                 var matches = parsed
@@ -87,23 +87,57 @@ namespace GolfApp1
                         var idx = x.Raw.IndexOf(')');
                         var truncated = idx >= 0 ? x.Raw.Substring(0, idx + 1) : x.Raw;
 
+                        // 1) Try the strict pattern first (preferred)
                         var m = entryRx.Match(truncated);
                         if (m.Success)
                         {
                             var name = Regex.Replace(m.Groups["name"].Value.Trim(), @"\s+", " ");
                             var points = m.Groups["points"].Value.Trim();
                             var hc = m.Groups["hc"].Value.Trim();
-
-                            // Ensure handicap is shown in parentheses exactly as in source (preserve sign/leading zeros)
-                            var hcDisplay = $"({hc})";
+                            // Normalize: remove leading '+' for display
+                            var hcDisplay = hc.StartsWith("+") ? hc.Substring(1) : hc;
                             return new { Name = name, Points = points, Handicap = hcDisplay, ScoreConfidence = 1.0 };
                         }
 
-                        // Fallback to parsed.Record fields if regex didn't match the truncated text,
-                        // but still require that the original raw line started with a number and had ')'.
+                        // 2) If strict pattern failed, try to extract any parenthesized content and pick the first numeric token inside
+                        var par = parAny.Match(truncated);
+                        if (par.Success)
+                        {
+                            var inside = par.Groups["inside"].Value;
+                            // find first numeric token inside parentheses
+                            var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
+                            string hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
+
+                            // attempt to find points token before the '('
+                            var before = truncated.Substring(0, par.Index).Trim();
+                            var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                            string pointsToken = "—";
+                            string nameToken = before;
+                            if (tokens.Length >= 2)
+                            {
+                                var last = tokens[^1].Trim().TrimEnd('.', ',');
+                                if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase))
+                                {
+                                    pointsToken = last;
+                                    // name is everything after the leading position number up to the points token
+                                    var nameParts = tokens.Skip(1).Take(tokens.Length - 2).ToArray();
+                                    nameToken = nameParts.Length > 0 ? string.Join(' ', nameParts) : string.Empty;
+                                }
+                                else
+                                {
+                                    pointsToken = string.IsNullOrWhiteSpace(x.Parsed.Result) ? "—" : x.Parsed.Result;
+                                    nameToken = Regex.Replace(before, @"^\d+\s*", "").Trim();
+                                }
+                            }
+
+                            var nameNormalized = string.IsNullOrWhiteSpace(x.Parsed.Name) ? Regex.Replace(nameToken, @"\s+", " ").Trim() : x.Parsed.Name;
+                            return new { Name = Regex.Replace(nameNormalized, @"\s+", " "), Points = pointsToken, Handicap = hcFound, ScoreConfidence = x.Parsed.Confidence };
+                        }
+
+                        // 3) Final fallback: use parsed fields if present
                         var fallbackName = string.IsNullOrWhiteSpace(x.Parsed.Name) ? Regex.Replace(truncated, @"\s+", " ").Trim() : x.Parsed.Name;
                         var fallbackPoints = string.IsNullOrWhiteSpace(x.Parsed.Result) ? "—" : x.Parsed.Result;
-                        var fallbackHc = string.IsNullOrWhiteSpace(x.Parsed.HandicapIndex) ? "—" : $"({x.Parsed.HandicapIndex})";
+                        var fallbackHc = string.IsNullOrWhiteSpace(x.Parsed.HandicapIndex) ? "—" : x.Parsed.HandicapIndex.TrimStart('+');
                         return new { Name = fallbackName, Points = fallbackPoints, Handicap = fallbackHc, ScoreConfidence = x.Parsed.Confidence };
                     })
                     .ToList();
