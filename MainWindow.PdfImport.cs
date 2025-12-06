@@ -12,7 +12,7 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
-        // Called from Results menu. Ensure this is the only OnImportPdfClicked in the project.
+        // Called from Results menu.
         private async void OnImportPdfClicked(object sender, RoutedEventArgs e)
         {
             UpdateStatus("Select PDF to preview...");
