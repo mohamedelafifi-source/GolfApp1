@@ -324,6 +324,7 @@ namespace GolfApp1
         }
 
         // ---------------- Player editing ----------------
+        //=================================================
 
         private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
         {
@@ -444,6 +445,8 @@ namespace GolfApp1
             }
 
             // Parse into Player records (semicolon-separated fields; labels end with colon)
+            // The format is : Code:xxxxxx; Name:xxxxxxxxxxxxxxxxxxxx; Index:xx.x;
+            // Note:xxxxxxxxxxxxxxxxxxxx
             var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             var parsed = new List<Player>(lines.Length);
 
@@ -521,6 +524,9 @@ namespace GolfApp1
                 UpdateStatus("Import cancelled.");
             }
         }
+
+        //Read thge content of the text file containing the players : Player ID : 6 digit code ;
+        //Player Name : 20 chars; Index Value : Double  
 
         private async Task BulkAddPlayersAsync(List<Player> players)
         {
