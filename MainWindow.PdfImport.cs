@@ -51,8 +51,8 @@ namespace GolfApp1
             }
         }
 
-        // Preview-only (does not save) — now shows only lines that start with a number and contain a trailing ")"
-        // Extracts Name, Points and Handicap and ignores anything after the closing parenthesis.
+        // Preview-only — show only lines that start with a number and contain a trailing ")".
+        // Extract Name, Points and Handicap (show handicap in parentheses).
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -69,22 +69,42 @@ namespace GolfApp1
                     return;
                 }
 
-                // Regex: start with number, then name, then points, optional "pts", then "(" handicap ")".
-                // We stop parsing at the closing parenthesis and ignore anything that follows.
+                // Pattern: starts with position number, name, points (or WD/DQ/DNS), then (handicap)
+                // Notes:
+                //  - points group accepts negative numbers or WD/DQ/DNS
+                //  - hc group accepts optional sign and leading zeros, e.g. -01 or 01 or 17 or 17.5
                 var entryRx = new Regex(
-                    @"^\s*\d+\s+(?<name>.+?)\s+(?<points>\d+)(?:\s*pts?)?\s*\(\s*(?<hc>\d{1,2}(?:\.\d)?)\s*\)",
+                    @"^\s*\d+\s+(?<name>.+?)\s+(?<points>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<hc>[+-]?\d{1,2}(?:\.\d)?)\s*\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-                // Filter parsed lines using RawLine (the original extracted text)
+                // Filter parsed lines: must start with number and contain a closing parenthesis.
                 var matches = parsed
-                    .Select(p => p.RawLine ?? string.Empty)
-                    .Select(line => new { Line = line, Match = entryRx.Match(line) })
-                    .Where(x => x.Match.Success)
-                    .Select(x => new
+                    .Select(p => new { Raw = (p.RawLine ?? string.Empty).Trim(), Parsed = p })
+                    .Where(x => Regex.IsMatch(x.Raw, @"^\s*\d") && x.Raw.Contains(')'))
+                    .Select(x =>
                     {
-                        Name = Regex.Replace(x.Match.Groups["name"].Value.Trim(), @"\s+", " "),
-                        Points = x.Match.Groups["points"].Value.Trim(),
-                        Handicap = x.Match.Groups["hc"].Value.Trim()
+                        // Truncate at first closing parenthesis (include it) to ignore trailing noise
+                        var idx = x.Raw.IndexOf(')');
+                        var truncated = idx >= 0 ? x.Raw.Substring(0, idx + 1) : x.Raw;
+
+                        var m = entryRx.Match(truncated);
+                        if (m.Success)
+                        {
+                            var name = Regex.Replace(m.Groups["name"].Value.Trim(), @"\s+", " ");
+                            var points = m.Groups["points"].Value.Trim();
+                            var hc = m.Groups["hc"].Value.Trim();
+
+                            // Ensure handicap is shown in parentheses exactly as in source (preserve sign/leading zeros)
+                            var hcDisplay = $"({hc})";
+                            return new { Name = name, Points = points, Handicap = hcDisplay, ScoreConfidence = 1.0 };
+                        }
+
+                        // Fallback to parsed.Record fields if regex didn't match the truncated text,
+                        // but still require that the original raw line started with a number and had ')'.
+                        var fallbackName = string.IsNullOrWhiteSpace(x.Parsed.Name) ? Regex.Replace(truncated, @"\s+", " ").Trim() : x.Parsed.Name;
+                        var fallbackPoints = string.IsNullOrWhiteSpace(x.Parsed.Result) ? "—" : x.Parsed.Result;
+                        var fallbackHc = string.IsNullOrWhiteSpace(x.Parsed.HandicapIndex) ? "—" : $"({x.Parsed.HandicapIndex})";
+                        return new { Name = fallbackName, Points = fallbackPoints, Handicap = fallbackHc, ScoreConfidence = x.Parsed.Confidence };
                     })
                     .ToList();
 
@@ -122,7 +142,7 @@ namespace GolfApp1
                 });
                 panel.Children.Add(header);
 
-                // Show extracted rows (limit to 500 to keep dialog responsive)
+                // Show extracted rows (limit to 500)
                 foreach (var p in matches.Take(500))
                 {
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
