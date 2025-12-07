@@ -1,3 +1,4 @@
+
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -5,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Globalization;
@@ -57,7 +59,7 @@ namespace GolfApp1
 
         // Preview-only. Extracts Name, Points, Handicap and shows a selectable import UI.
         // Adds "Club Preview" as the secondary action which groups parsed rows by the
-        // club found in the players DB (matching by name) and shows a club-specific preview.
+        // club found in the players DB (matching by normalized name with fuzzy fallback).
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -282,6 +284,15 @@ namespace GolfApp1
                     int imported = 0, failed = 0;
                     var errors = new List<string>();
 
+                    // prepare VM player lookup with normalized names
+                    Dictionary<string, Player> normalizedPlayers = null;
+                    if (_vm is not null)
+                    {
+                        normalizedPlayers = _vm.Players
+                            .Where(pl => !string.IsNullOrWhiteSpace(pl.Name))
+                            .ToDictionary(pl => NormalizeName(pl.Name), pl => pl, StringComparer.OrdinalIgnoreCase);
+                    }
+
                     foreach (var cb in checkBoxes)
                     {
                         if (cb.IsChecked != true) continue;
@@ -304,11 +315,35 @@ namespace GolfApp1
                                 Position = tag.Position
                             };
 
-                            if (_vm is not null)
+                            // Try to resolve PlayerId from VM using normalized name, then fuzzy Jaro-Winkler
+                            if (normalizedPlayers != null)
                             {
-                                // case-insensitive player name match
-                                var player = _vm.Players.FirstOrDefault(p => string.Equals(p.Name, rec.PlayerName, StringComparison.OrdinalIgnoreCase));
-                                if (player is not null) rec.PlayerId = player.Id;
+                                var n = NormalizeName(rec.PlayerName);
+                                if (normalizedPlayers.TryGetValue(n, out var playerExact))
+                                {
+                                    rec.PlayerId = playerExact.Id;
+                                }
+                                else
+                                {
+                                    // fuzzy match against normalized player names
+                                    double best = 0.0;
+                                    string bestKey = null;
+                                    foreach (var key in normalizedPlayers.Keys)
+                                    {
+                                        var sim = JaroWinkler(n, key);
+                                        if (sim > best)
+                                        {
+                                            best = sim;
+                                            bestKey = key;
+                                        }
+                                    }
+
+                                    // threshold: 0.92 (tuneable)
+                                    if (!string.IsNullOrEmpty(bestKey) && best >= 0.92)
+                                    {
+                                        rec.PlayerId = normalizedPlayers[bestKey].Id;
+                                    }
+                                }
                             }
 
                             var err = await _db.UpsertResultAsync(rec);
@@ -354,6 +389,7 @@ namespace GolfApp1
         }
 
         // Build and show a club-grouped preview using the players DB.
+        // Matching now uses normalized names (diacritics removed, case-insensitive) and Jaro-Winkler fuzzy fallback.
         private async Task ShowClubGroupedPreviewAsync(List<(string Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -363,7 +399,7 @@ namespace GolfApp1
                 return;
             }
 
-            // Build a lookup of player name -> club short name by iterating clubs and players
+            // Build a lookup of player normalized name -> club short name by iterating clubs and players
             var clubs = await _db.GetAllClubsAsync();
             var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var clubLookup = clubs.ToDictionary(c => c.ShortName, c => c);
@@ -373,7 +409,7 @@ namespace GolfApp1
                 var players = await _db.GetPlayersByClubAsync(club.ShortName);
                 foreach (var pl in players)
                 {
-                    var key = Regex.Replace(pl.Name ?? string.Empty, @"\s+", " ").Trim();
+                    var key = NormalizeName(pl.Name ?? string.Empty);
                     if (!string.IsNullOrWhiteSpace(key) && !nameToClub.ContainsKey(key))
                     {
                         nameToClub[key] = club.ShortName;
@@ -387,11 +423,34 @@ namespace GolfApp1
             string unknownKey = "__UNKNOWN__";
             foreach (var r in extractedRows)
             {
-                var normalized = Regex.Replace(r.Name ?? string.Empty, @"\s+", " ").Trim();
+                var normalized = NormalizeName(r.Name ?? string.Empty);
+
                 if (nameToClub.TryGetValue(normalized, out var clubShort))
                 {
                     if (!grouped.ContainsKey(clubShort)) grouped[clubShort] = new List<(string, string, string, int)>();
                     grouped[clubShort].Add((r.Name, r.Points, r.Handicap, r.Position));
+                    continue;
+                }
+
+                // fuzzy fallback: find best match in nameToClub keys
+                double best = 0.0;
+                string bestKey = null;
+                foreach (var key in nameToClub.Keys)
+                {
+                    var sim = JaroWinkler(normalized, key);
+                    if (sim > best)
+                    {
+                        best = sim;
+                        bestKey = key;
+                    }
+                }
+
+                // threshold: 0.90 (tuneable)
+                if (!string.IsNullOrEmpty(bestKey) && best >= 0.90)
+                {
+                    var matchedClub = nameToClub[bestKey];
+                    if (!grouped.ContainsKey(matchedClub)) grouped[matchedClub] = new List<(string, string, string, int)>();
+                    grouped[matchedClub].Add((r.Name, r.Points, r.Handicap, r.Position));
                 }
                 else
                 {
@@ -479,6 +538,94 @@ namespace GolfApp1
             }
 
             await dlg.ShowAsync();
+        }
+
+        // Remove diacritics and normalize spacing/casing
+        private static string NormalizeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+            var trimmed = name.Trim();
+            var withoutDiacritics = RemoveDiacritics(trimmed);
+            var collapsed = Regex.Replace(withoutDiacritics, @"\s+", " ").Trim();
+            return collapsed.ToLowerInvariant();
+        }
+
+        private static string RemoveDiacritics(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? string.Empty;
+            var normalized = text.Normalize(NormalizationForm.FormD);
+            var sb = new StringBuilder(capacity: normalized.Length);
+            foreach (var ch in normalized)
+            {
+                var uc = CharUnicodeInfo.GetUnicodeCategory(ch);
+                if (uc != UnicodeCategory.NonSpacingMark)
+                {
+                    sb.Append(ch);
+                }
+            }
+            return sb.ToString().Normalize(NormalizationForm.FormC);
+        }
+
+        // Jaro-Winkler similarity (standard implementation)
+        private static double JaroWinkler(string s1, string s2)
+        {
+            if (string.IsNullOrEmpty(s1)) return string.IsNullOrEmpty(s2) ? 1.0 : 0.0;
+            if (string.IsNullOrEmpty(s2)) return 0.0;
+
+            var jaro = JaroDistance(s1, s2);
+            // Apply Winkler boost for common prefix
+            const double scaling = 0.1;
+            int prefix = 0;
+            for (int i = 0; i < Math.Min(4, Math.Min(s1.Length, s2.Length)); i++)
+            {
+                if (s1[i] == s2[i]) prefix++;
+                else break;
+            }
+            return jaro + prefix * scaling * (1 - jaro);
+        }
+
+        private static double JaroDistance(string s1, string s2)
+        {
+            var cs1 = s1.ToCharArray();
+            var cs2 = s2.ToCharArray();
+            int len1 = cs1.Length, len2 = cs2.Length;
+            if (len1 == 0) return len2 == 0 ? 1.0 : 0.0;
+
+            int matchDistance = Math.Max(0, (Math.Max(len1, len2) / 2) - 1);
+
+            var s1Matches = new bool[len1];
+            var s2Matches = new bool[len2];
+
+            int matches = 0;
+            for (int i = 0; i < len1; i++)
+            {
+                int start = Math.Max(0, i - matchDistance);
+                int end = Math.Min(i + matchDistance, len2 - 1);
+                for (int j = start; j <= end; j++)
+                {
+                    if (s2Matches[j]) continue;
+                    if (cs1[i] != cs2[j]) continue;
+                    s1Matches[i] = true;
+                    s2Matches[j] = true;
+                    matches++;
+                    break;
+                }
+            }
+
+            if (matches == 0) return 0.0;
+
+            double t = 0;
+            int k = 0;
+            for (int i = 0; i < len1; i++)
+            {
+                if (!s1Matches[i]) continue;
+                while (!s2Matches[k]) k++;
+                if (cs1[i] != cs2[k]) t += 0.5;
+                k++;
+            }
+
+            double m = matches;
+            return ((m / len1) + (m / len2) + ((m - t) / m)) / 3.0;
         }
     }
 }
