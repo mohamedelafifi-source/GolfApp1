@@ -1,4 +1,3 @@
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -307,7 +306,8 @@ namespace GolfApp1
 
                             if (_vm is not null)
                             {
-                                var player = _vm.Players.FirstOrDefault(p => string.Equals(p.Name, rec.PlayerName, StringComparison.Ordinal));
+                                // case-insensitive player name match
+                                var player = _vm.Players.FirstOrDefault(p => string.Equals(p.Name, rec.PlayerName, StringComparison.OrdinalIgnoreCase));
                                 if (player is not null) rec.PlayerId = player.Id;
                             }
 
