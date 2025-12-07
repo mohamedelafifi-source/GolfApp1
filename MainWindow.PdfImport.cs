@@ -1,4 +1,3 @@
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -18,7 +17,7 @@ using GolfApp1.Models;
 
 namespace GolfApp1
 {
-    public sealed partial class MainWindow
+    public sealed partial class MainWindow : Window
     {
         // Set to true to select the preview TSV in Explorer after parsing.
         private readonly bool _openExplorerAfterExport = false;
@@ -48,7 +47,7 @@ namespace GolfApp1
 
             try
             {
-                return await picker.PickSingleFileAsync().AsTask();
+                return await picker.PickSingleFileAsync();
             }
             catch
             {
@@ -114,7 +113,7 @@ namespace GolfApp1
                     {
                         var inside = par.Groups["inside"].Value;
                         var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
-                        var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
+                        var hcFound = numMatch.Success ? numMatch.Value.Trim().TrimStart('+') : "—";
 
                         var before = truncated.Substring(0, par.Index).Trim();
                         var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -163,33 +162,129 @@ namespace GolfApp1
                     catch { }
                 }
 
-                // Build UI
-                var panel = new StackPanel { Spacing = 6 };
-                var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-                header.Children.Add(new TextBlock { Text = "Import", Width = 60, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                header.Children.Add(new TextBlock { Text = "Name", Width = 340, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-                header.Children.Add(new TextBlock { Text = "Points", Width = 80, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
-                header.Children.Add(new TextBlock { Text = "Handicap", Width = 100, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
+                // Build UI with proper layout
+                var panel = new StackPanel { Spacing = 8, Margin = new Thickness(10) };
+
+                // Header row using Grid for proper alignment
+                var header = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+
+                var importHeader = new TextBlock
+                {
+                    Text = "Import",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(importHeader, 0);
+                header.Children.Add(importHeader);
+
+                var nameHeader = new TextBlock
+                {
+                    Text = "Name",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(nameHeader, 1);
+                header.Children.Add(nameHeader);
+
+                var pointsHeader = new TextBlock
+                {
+                    Text = "Points",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(pointsHeader, 2);
+                header.Children.Add(pointsHeader);
+
+                var hcHeader = new TextBlock
+                {
+                    Text = "Handicap",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(hcHeader, 3);
+                header.Children.Add(hcHeader);
+
                 panel.Children.Add(header);
 
+                // Add separator
+                var separator = new Border
+                {
+                    Height = 1,
+                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray),
+                    Margin = new Thickness(0, 0, 0, 10)
+                };
+                panel.Children.Add(separator);
+
                 var checkBoxes = new List<CheckBox>();
+
                 foreach (var e in extractedRows.Take(500))
                 {
-                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-                    var cb = new CheckBox { IsChecked = true, Width = 60, Tag = e }; // tuple in Tag
+                    var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+
+                    var cb = new CheckBox
+                    {
+                        IsChecked = true,
+                        Tag = e,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
                     checkBoxes.Add(cb);
+                    Grid.SetColumn(cb, 0);
                     row.Children.Add(cb);
 
-                    row.Children.Add(new TextBlock { Text = e.Name, Width = 340, TextWrapping = TextWrapping.Wrap });
-                    row.Children.Add(new TextBlock { Text = e.Points, Width = 80, TextAlignment = TextAlignment.Center });
+                    var nameText = new TextBlock
+                    {
+                        Text = e.Name,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(5, 0, 5, 0)
+                    };
+                    Grid.SetColumn(nameText, 1);
+                    row.Children.Add(nameText);
 
-                    var hcText = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—" ? "—" : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
-                    row.Children.Add(new TextBlock { Text = hcText, Width = 100, TextAlignment = TextAlignment.Center });
+                    var pointsText = new TextBlock
+                    {
+                        Text = e.Points,
+                        TextAlignment = TextAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                    };
+                    Grid.SetColumn(pointsText, 2);
+                    row.Children.Add(pointsText);
+
+                    var hcDisplay = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—"
+                        ? "—"
+                        : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
+
+                    var hcText = new TextBlock
+                    {
+                        Text = hcDisplay,
+                        TextAlignment = TextAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                    };
+                    Grid.SetColumn(hcText, 3);
+                    row.Children.Add(hcText);
 
                     panel.Children.Add(row);
                 }
 
-                var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
+                var scroll = new ScrollViewer
+                {
+                    Content = panel,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    MaxHeight = 600,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
+                };
 
                 var previewDlg = new ContentDialog
                 {
@@ -197,7 +292,8 @@ namespace GolfApp1
                     Content = scroll,
                     PrimaryButtonText = "Import Selected",
                     CloseButtonText = "Close",
-                    XamlRoot = this.Content?.XamlRoot
+                    XamlRoot = this.Content?.XamlRoot,
+                    DefaultButton = ContentDialogButton.Close
                 };
 
                 if (this.Content?.XamlRoot == null)
