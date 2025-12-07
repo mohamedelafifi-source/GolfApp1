@@ -89,8 +89,8 @@ namespace GolfApp1
 
                 var parAny = new Regex(@"\((?<inside>[^)]*)\)", RegexOptions.Compiled);
 
-                // Build concrete list of preview rows to avoid anonymous-type/runtime access issues
-                var extractedRows = new List<(string Name, string Points, string Handicap, string Raw, int Position)>();
+                // NOTE: Name is nullable so this collection can be passed directly to ShowClubGroupedPreviewAsync
+                var extractedRows = new List<(string? Name, string Points, string Handicap, string Raw, int Position)>();
 
                 foreach (var p in parsed)
                 {
@@ -296,7 +296,7 @@ namespace GolfApp1
                     foreach (var cb in checkBoxes)
                     {
                         if (cb.IsChecked != true) continue;
-                        var tag = ((string Name, string Points, string Handicap, string Raw, int Position))cb.Tag;
+                        var tag = ((string? Name, string Points, string Handicap, string Raw, int Position))cb.Tag;
                         try
                         {
                             int.TryParse(tag.Handicap, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var hParsed);
@@ -308,14 +308,14 @@ namespace GolfApp1
                                 Date = importDate,
                                 Club = importClub,
                                 Venue = importVenue,
-                                PlayerName = tag.Name,
+                                PlayerName = tag.Name ?? string.Empty,
                                 Partner = string.Empty,
                                 Hcp = hParsed,
                                 Result = sParsed,
                                 Position = tag.Position
                             };
 
-                            // Try to resolve PlayerId from VM using normalized name, then fuzzy Jaro-Winkler
+                            // Try to resolve PlayerId from VM using normalized name, then fuzzy NameSimilarity/metrics
                             if (normalizedPlayers != null)
                             {
                                 var n = NormalizeName(rec.PlayerName);
@@ -325,23 +325,35 @@ namespace GolfApp1
                                 }
                                 else
                                 {
-                                    // fuzzy match against normalized player names
+                                    // Use token-aware metrics and stricter acceptance rules to avoid false matches
                                     double best = 0.0;
-                                    string bestKey = null;
+                                    string? bestKey = null;
+                                    (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
+                                    const double Threshold = 0.95; // stricter overall acceptance
+                                    const double MinFirstSim = 0.70; // require stronger first-name similarity
+                                    const double MinLastExact = 0.995; // near-exact last-name only
+                                    const double MinFirstWhenLastExact = 0.65; // still require decent first-name sim
+
                                     foreach (var key in normalizedPlayers.Keys)
                                     {
-                                        var sim = JaroWinkler(n, key);
-                                        if (sim > best)
+                                        var metrics = ComputeNameMetrics(n, key);
+                                        if (metrics.combined > best)
                                         {
-                                            best = sim;
+                                            best = metrics.combined;
                                             bestKey = key;
+                                            bestMetrics = metrics;
                                         }
                                     }
 
-                                    // threshold: 0.92 (tuneable)
-                                    if (!string.IsNullOrEmpty(bestKey) && best >= 0.92)
+                                    if (!string.IsNullOrEmpty(bestKey))
                                     {
-                                        rec.PlayerId = normalizedPlayers[bestKey].Id;
+                                        // Accept only if combined is very high AND first-name close,
+                                        // or if last-name is essentially exact and first-name reasonably close.
+                                        if ((bestMetrics.combined >= Threshold && bestMetrics.firstSim >= MinFirstSim) ||
+                                            (bestMetrics.lastSim >= MinLastExact && bestMetrics.firstSim >= MinFirstWhenLastExact))
+                                        {
+                                            rec.PlayerId = normalizedPlayers[bestKey].Id;
+                                        }
                                     }
                                 }
                             }
@@ -388,8 +400,6 @@ namespace GolfApp1
             }
         }
 
-
-        
         private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -432,21 +442,29 @@ namespace GolfApp1
                     continue;
                 }
 
-                // fuzzy fallback: find best match in nameToClub keys
+                // Fuzzy fallback using token-aware metrics
                 double best = 0.0;
-                string bestKey = null;
+                string? bestKey = null;
+                (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
+                const double GroupThreshold = 0.95;
+                const double GroupMinFirstSim = 0.70;
+                const double GroupMinLastExact = 0.995;
+                const double GroupMinFirstWhenLastExact = 0.65;
+
                 foreach (var key in nameToClub.Keys)
                 {
-                    var sim = JaroWinkler(normalized, key);
-                    if (sim > best)
+                    var metrics = ComputeNameMetrics(normalized, key);
+                    if (metrics.combined > best)
                     {
-                        best = sim;
+                        best = metrics.combined;
                         bestKey = key;
+                        bestMetrics = metrics;
                     }
                 }
 
-                // threshold: 0.90 (tuneable)
-                if (!string.IsNullOrEmpty(bestKey) && best >= 0.90)
+                if (!string.IsNullOrEmpty(bestKey) &&
+                    ((bestMetrics.combined >= GroupThreshold && bestMetrics.firstSim >= GroupMinFirstSim) ||
+                     (bestMetrics.lastSim >= GroupMinLastExact && bestMetrics.firstSim >= GroupMinFirstWhenLastExact)))
                 {
                     var matchedClub = nameToClub[bestKey];
                     if (!grouped.ContainsKey(matchedClub)) grouped[matchedClub] = new List<(string, string, string, int)>();
@@ -507,7 +525,7 @@ namespace GolfApp1
                     new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                     new ColumnDefinition { Width = new GridLength(80) },
                     new ColumnDefinition { Width = new GridLength(80) }
-                },
+                         },
                         Margin = new Thickness(0, 2, 0, 2)
                     };
                     r.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
@@ -540,9 +558,6 @@ namespace GolfApp1
             await dlg.ShowAsync();
         }
 
-
-
-
         // Local UI helper used inside this file to avoid cross-file symbol issues during incremental edits.
         // This duplicates behavior of the shared ShowErrorAsync but is scoped to PdfImport.cs only.
         private async Task LocalShowErrorAsync(string title, string message)
@@ -552,6 +567,7 @@ namespace GolfApp1
             if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
         }
 
+        //Trim names and be case insensitive
         // Remove diacritics and normalize spacing/casing
         private static string NormalizeName(string name)
         {
@@ -578,6 +594,55 @@ namespace GolfApp1
             return sb.ToString().Normalize(NormalizationForm.FormC);
         }
 
+        // Compute combined/first/last metrics for two normalized names.
+        // Returns (combined, firstSim, lastSim). Callers may apply thresholds.
+        private static (double combined, double firstSim, double lastSim) ComputeNameMetrics(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return (0.0, 0.0, 0.0);
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return (1.0, 1.0, 1.0);
+
+            var la = a.Length;
+            var lb = b.Length;
+            var lenRatio = Math.Min(la, lb) / (double)Math.Max(1, Math.Max(la, lb));
+            if (lenRatio < 0.5) return (0.0, 0.0, 0.0);
+
+            var tokensA = a.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var tokensB = b.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // common surname particles to treat as part of last name (e.g. "el mahdy")
+            var particles = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "el", "al", "abu", "bin", "ibn", "de", "van", "von", "le", "la" };
+
+            if (tokensA.Length > 1 && tokensB.Length > 1)
+            {
+                var firstA = tokensA[0];
+                var firstB = tokensB[0];
+
+                string lastA, lastB;
+                if (tokensA.Length >= 2 && particles.Contains(tokensA[^2]))
+                    lastA = tokensA[^2] + " " + tokensA[^1];
+                else
+                    lastA = tokensA[^1];
+
+                if (tokensB.Length >= 2 && particles.Contains(tokensB[^2]))
+                    lastB = tokensB[^2] + " " + tokensB[^1];
+                else
+                    lastB = tokensB[^1];
+
+                var lastSim = JaroWinkler(lastA, lastB);
+                var firstSim = JaroWinkler(firstA, firstB);
+
+                var combined = (0.75 * lastSim) + (0.25 * firstSim); // slightly more weight to surname now
+
+                // If exact multi-token last-name match (including particle) boost high
+                if (string.Equals(lastA, lastB, StringComparison.OrdinalIgnoreCase)) combined = Math.Max(combined, 0.995);
+
+                return (combined, firstSim, lastSim);
+            }
+
+            var full = JaroWinkler(a, b);
+            return (full, full, full);
+        }
+
         // Jaro-Winkler similarity (standard implementation)
         private static double JaroWinkler(string s1, string s2)
         {
@@ -585,7 +650,6 @@ namespace GolfApp1
             if (string.IsNullOrEmpty(s2)) return 0.0;
 
             var jaro = JaroDistance(s1, s2);
-            // Apply Winkler boost for common prefix
             const double scaling = 0.1;
             int prefix = 0;
             for (int i = 0; i < Math.Min(4, Math.Min(s1.Length, s2.Length)); i++)
