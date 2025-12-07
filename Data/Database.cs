@@ -1,3 +1,4 @@
+
 //Database.cs
 //==============
 using System;
@@ -263,6 +264,93 @@ WHERE Id = $id;";
                 });
             }
             return list;
+        }
+
+        // Delete player and update club counts
+        public async Task<string?> DeletePlayerAsync(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+
+                // find player's club
+                using var clubCmd = _conn.CreateCommand();
+                clubCmd.Transaction = tran;
+                clubCmd.CommandText = "SELECT ClubShortName FROM Players WHERE Id = $id LIMIT 1;";
+                clubCmd.Parameters.AddWithValue("$id", playerId);
+                var scalar = await clubCmd.ExecuteScalarAsync();
+                var club = scalar == null || scalar == DBNull.Value ? null : Convert.ToString(scalar);
+
+                // delete player
+                using var delCmd = _conn.CreateCommand();
+                delCmd.Transaction = tran;
+                delCmd.CommandText = "DELETE FROM Players WHERE Id = $id;";
+                delCmd.Parameters.AddWithValue("$id", playerId);
+                await delCmd.ExecuteNonQueryAsync();
+
+                // decrement club count when applicable
+                if (!string.IsNullOrEmpty(club))
+                {
+                    using var decCmd = _conn.CreateCommand();
+                    decCmd.Transaction = tran;
+                    decCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers - 1 WHERE ShortName = $club;";
+                    decCmd.Parameters.AddWithValue("$club", club);
+                    await decCmd.ExecuteNonQueryAsync();
+                }
+
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        // Delete club (only when no players exist) - returns error message if not allowed
+        public async Task<string?> DeleteClubAsync(string clubShort)
+        {
+            if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                // check player count
+                using var cntCmd = _conn.CreateCommand();
+                cntCmd.CommandText = "SELECT COUNT(1) FROM Players WHERE ClubShortName = $club;";
+                cntCmd.Parameters.AddWithValue("$club", clubShort);
+                var scalar = await cntCmd.ExecuteScalarAsync();
+                var count = scalar == null || scalar == DBNull.Value ? 0 : Convert.ToInt32(scalar);
+
+                if (count > 0)
+                {
+                    return $"Club '{clubShort}' has {count} players. Remove players first or delete them before deleting the club.";
+                }
+
+                using var tran = _conn.BeginTransaction();
+                using var delCmd = _conn.CreateCommand();
+                delCmd.Transaction = tran;
+                delCmd.CommandText = "DELETE FROM Clubs WHERE ShortName = $club;";
+                delCmd.Parameters.AddWithValue("$club", clubShort);
+                await delCmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
         }
 
         // Results

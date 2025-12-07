@@ -1,3 +1,4 @@
+
 //MainWindow.xaml.cs
 using GolfApp1.Data;
 using GolfApp1.Models;
@@ -38,12 +39,13 @@ namespace GolfApp1
 
             _ = InitializeAsync();
         }
+
+        // ---------------- File / Bulk import entry ----------------
+
         private async void OnLoadFileClicked(object sender, RoutedEventArgs e)
         {
-            // Create a FileOpenPicker and initialize it with the current window handle (WinUI3 desktop pattern)
             var picker = new Windows.Storage.Pickers.FileOpenPicker();
 
-            // Initialize with window handle
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -65,18 +67,14 @@ namespace GolfApp1
             {
                 var text = await Windows.Storage.FileIO.ReadTextAsync(file);
 
-                // Show confirmation (optional)
+                // Show confirmation (optional) — shared ShowErrorAsync is implemented in Helpers partial.
                 await ShowErrorAsync("File Selected", $"File '{file.Name}' selected ({text.Length} bytes).");
 
                 // Determine club short name to import into.
-                // Prefer the current short name in the UI; otherwise ask the user to enter one.
                 var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
 
                 if (string.IsNullOrEmpty(clubShort))
                 {
-                    //To make sure a club is selected before parsing 
-                    // I can comment this out 
-                    // Prompt the user to enter a club short name (4 chars expected)
                     var inputBox = new TextBox { PlaceholderText = "Enter 4-char club short name" };
                     var dlg = new ContentDialog
                     {
@@ -84,10 +82,10 @@ namespace GolfApp1
                         Content = new StackPanel
                         {
                             Children =
-                    {
-                        new TextBlock { Text = "No club selected in the editor. Enter the club short name to import into:", TextWrapping = TextWrapping.Wrap },
-                        inputBox
-                    },
+                            {
+                                new TextBlock { Text = "No club selected in the editor. Enter the club short name to import into:", TextWrapping = TextWrapping.Wrap },
+                                inputBox
+                            },
                             Spacing = 8
                         },
                         PrimaryButtonText = "OK",
@@ -111,8 +109,8 @@ namespace GolfApp1
                         return;
                     }
                 }
-                //This is the direct call without the check above
-                // Hand off to the parser/import flow. The method will prompt the user to Auto Add or Review.
+
+                // Hand off to the shared parser/import flow (Helpers partial provides ParseAndBulkAddAsync).
                 await ParseAndBulkAddAsync(text, clubShort);
             }
             catch (Exception ex)
@@ -121,30 +119,12 @@ namespace GolfApp1
             }
         }
 
+        // ---------------- Initialization ----------------
         
-        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
+        private void OnAddPlayerSaveClicked(object sender, RoutedEventArgs e)
         {
-            // Reuse existing ExitPlayerMode logic
-            ExitPlayerMode();
-        }
-
-        private void OnEditorExitClicked(object sender, RoutedEventArgs e)
-        {
-            // Close the editor UI and ensure any player editor is exited
-            try
-            {
-                if (_inPlayerMode)
-                {
-                    ExitPlayerMode();
-                }
-            }
-            catch
-            {
-                // ignore - best effort
-            }
-
-            EditorArea.Visibility = Visibility.Collapsed;
-            UpdateStatus("Editor closed.");
+            // Reuse existing Add/Update logic implemented in OnUpdatePlayerClicked
+            OnUpdatePlayerClicked(sender, e);
         }
         private async Task InitializeAsync()
         {
@@ -155,22 +135,18 @@ namespace GolfApp1
                 _db = new Database(dbPath);
                 await _db.InitializeAsync();
 
-                // Create and wire ViewModel
                 _vm = new MainViewModel(_db);
 
-                // Set DataContext on the Window root element (WinUI3 pattern)
                 var root = this.Content as FrameworkElement;
                 if (root is not null)
                 {
                     root.DataContext = _vm;
                 }
 
-                // Load clubs into VM and local cache
                 await _vm.LoadClubsAsync();
                 RefreshLocalClubsFromVm();
 
                 _index = 0;
-                // Only populate editor fields if the editor is visible.
                 if (EditorArea.Visibility == Visibility.Visible)
                 {
                     ShowCurrent();
@@ -183,7 +159,6 @@ namespace GolfApp1
             }
         }
 
-        // copy VM clubs into local list used by existing UI code
         private void RefreshLocalClubsFromVm()
         {
             _clubs.Clear();
@@ -193,7 +168,6 @@ namespace GolfApp1
 
         private void UpdateStatus(string message)
         {
-            // StatusLabel defined in MainWindow.xaml
             StatusLabel.Text = message;
         }
 
@@ -323,8 +297,65 @@ namespace GolfApp1
             }
         }
 
+        // Delete Club handler (with confirmation)
+        private async void OnDeleteClubClicked(object sender, RoutedEventArgs e)
+        {
+            if (_db is null || _vm is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await ShowErrorAsync("Delete Club", "Database not initialized.");
+                return;
+            }
+
+            var shortName = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(shortName))
+            {
+                UpdateStatus("No club selected to delete.");
+                await ShowErrorAsync("Delete Club", "No club selected to delete.");
+                return;
+            }
+
+            var confirm = new ContentDialog
+            {
+                Title = $"Delete club '{shortName}'?",
+                Content = $"This will permanently delete the club '{shortName}'. This action cannot be undone. If the club still has players you must remove them first.",
+                PrimaryButtonText = "Delete",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            var res = ContentDialogResult.None;
+            if (this.Content?.XamlRoot != null) res = await confirm.ShowAsync();
+            if (res != ContentDialogResult.Primary)
+            {
+                UpdateStatus("Delete cancelled.");
+                return;
+            }
+
+            try
+            {
+                var err = await _db.DeleteClubAsync(shortName);
+                if (err != null)
+                {
+                    UpdateStatus("Delete failed: " + err);
+                    await ShowErrorAsync("Delete Club Failed", err);
+                    return;
+                }
+
+                await _vm.LoadClubsAsync();
+                RefreshLocalClubsFromVm();
+                _index = Math.Min(_index, Math.Max(0, _clubs.Count - 1));
+                ShowCurrent();
+                UpdateStatus($"Club '{shortName}' deleted.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Delete club failed: " + ex.Message);
+                await ShowErrorAsync("Delete club failed", ex.Message);
+            }
+        }
+
         // ---------------- Player editing ----------------
-        //=================================================
 
         private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
         {
@@ -392,17 +423,14 @@ namespace GolfApp1
             _playerIndex = 0;
             _inPlayerMode = true;
 
-            // Keep the club editor visible but make it read-only so the user still sees the current club.
             ShortNameTextBox.IsEnabled = false;
             LongNameTextBox.IsEnabled = false;
 
-            // Disable club navigation and actions while in player mode
             PrevButton.IsEnabled = false;
             NextButton.IsEnabled = false;
             SaveButton.IsEnabled = false;
             AddPlayerButton.IsEnabled = false;
 
-            // Show player editor panel
             PlayerEditorPanel.Visibility = Visibility.Visible;
 
             ShowPlayer();
@@ -415,211 +443,20 @@ namespace GolfApp1
             _inPlayerMode = false;
             PlayerEditorPanel.Visibility = Visibility.Collapsed;
 
-            // Restore club editor interactivity
             ShortNameTextBox.IsEnabled = true;
             LongNameTextBox.IsEnabled = true;
 
-            // Restore club navigation/buttons
             PrevButton.IsEnabled = _index > 0;
             NextButton.IsEnabled = _index < _clubs.Count - 1;
             AddPlayerButton.IsEnabled = true;
 
             ValidateNameFields();
 
-            // Refresh clubs via VM
             if (_vm != null) { await _vm.LoadClubsAsync(); RefreshLocalClubsFromVm(); ShowCurrent(); }
             UpdateStatus("Returned from player editor.");
         }
-        // Paste these methods into the MainWindow class (alongside existing helpers).
-        // Also ensure you have `using System.Text.RegularExpressions;` at the top of the file.
 
-
-
-        private async Task ParseAndBulkAddAsync(string text, string clubShort)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                UpdateStatus("File is empty.");
-                await ShowErrorAsync("Empty file", "The selected file contains no text.");
-                return;
-            }
-
-            // Parse into Player records (semicolon-separated fields; labels end with colon)
-            // The format is : Code:xxxxxx; Name:xxxxxxxxxxxxxxxxxxxx; Index:xx.x;
-            // Note:xxxxxxxxxxxxxxxxxxxx
-            var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var parsed = new List<Player>(lines.Length);
-
-            foreach (var rawLine in lines)
-            {
-                var line = rawLine.Trim();
-                if (string.IsNullOrEmpty(line)) continue;
-
-                var tokens = line.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                var code = string.Empty;
-                var name = string.Empty;
-                var idx = string.Empty;
-                var note = string.Empty;
-
-                foreach (var t in tokens)
-                {
-                    var parts = t.Split(new[] { ':' }, 2);
-                    if (parts.Length < 2) continue;
-                    var label = parts[0].Trim().TrimEnd(':').ToLowerInvariant();
-                    var value = parts[1].Trim();
-
-                    if (label.Contains("code")) code = value;
-                    else if (label.Contains("name")) name = value;
-                    else if (label.Contains("index")) idx = value;
-                    else if (label.Contains("note")) note = value;
-                }
-
-                // Basic normalization: remove spaces from code
-                code = Regex.Replace(code, @"\s+", string.Empty);
-
-                var player = new Player
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    ClubShortName = clubShort,
-                    Code = code,
-                    Name = name,
-                    IndexValue = idx,
-                    Note = note
-                };
-
-                parsed.Add(player);
-            }
-
-            if (parsed.Count == 0)
-            {
-                UpdateStatus("No valid records found in file.");
-                await ShowErrorAsync("No records", "No valid player records were found in the selected file.");
-                return;
-            }
-
-            // Ask user: Auto Add or Load For Review
-            var dlg = new ContentDialog
-            {
-                Title = "Import Options",
-                Content = $"Parsed {parsed.Count} records. Do you want to add them to the database now, or load them for review?",
-                PrimaryButtonText = "Auto Add",
-                SecondaryButtonText = "Review",
-                CloseButtonText = "Cancel",
-                XamlRoot = this.Content?.XamlRoot
-            };
-
-            var result = ContentDialogResult.None;
-            if (this.Content?.XamlRoot != null) result = await dlg.ShowAsync();
-
-            if (result == ContentDialogResult.Primary)
-            {
-                await BulkAddPlayersAsync(parsed);
-            }
-            else if (result == ContentDialogResult.Secondary)
-            {
-                LoadPlayersForReview(parsed, clubShort);
-            }
-            else
-            {
-                UpdateStatus("Import cancelled.");
-            }
-        }
-
-        //Read thge content of the text file containing the players : Player ID : 6 digit code ;
-        //Player Name : 20 chars; Index Value : Double  
-
-        private async Task BulkAddPlayersAsync(List<Player> players)
-        {
-            if (_vm is null)
-            {
-                UpdateStatus("Database not initialized.");
-                await ShowErrorAsync("Error", "Database not initialized.");
-                return;
-            }
-
-            var added = 0;
-            var failed = 0;
-            var errors = new List<string>();
-
-            foreach (var p in players)
-            {
-                // minimal validation
-                if (string.IsNullOrEmpty(p.Code) || p.Code.Length != 6 || !int.TryParse(p.Code, out _))
-                {
-                    failed++;
-                    errors.Add($"Code '{p.Code}' invalid (expected 6 digits).");
-                    continue;
-                }
-                if (string.IsNullOrWhiteSpace(p.Name))
-                {
-                    failed++;
-                    errors.Add($"Code '{p.Code}': missing name.");
-                    continue;
-                }
-
-                try
-                {
-                    var err = await _vm.UpsertPlayerAsync(p);
-                    if (err != null)
-                    {
-                        failed++;
-                        errors.Add($"Code '{p.Code}': {MapDbErrorToUserMessage(err, p.Code)}");
-                    }
-                    else
-                    {
-                        added++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    errors.Add($"Code '{p.Code}': unexpected error: {ex.Message}");
-                }
-            }
-
-            var summary = $"Bulk import finished. Added: {added}. Failed: {failed}.";
-            UpdateStatus(summary);
-
-            var details = errors.Count == 0 ? string.Empty : string.Join("\n", errors.Count > 50 ? errors.GetRange(0, 50) : errors);
-            if (errors.Count > 50) details += $"\n... ({errors.Count - 50} more lines)";
-
-            await ShowErrorAsync(failed == 0 ? "Import Complete" : "Import Completed with errors",
-                                 summary + (string.IsNullOrEmpty(details) ? string.Empty : $"\n\n{details}"));
-
-            // If player editor was open for this club, reload it
-            if (_inPlayerMode)
-            {
-                var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
-                if (!string.IsNullOrEmpty(clubShort)) await EnterPlayerModeAsync(clubShort);
-            }
-        }
-
-        private void LoadPlayersForReview(List<Player> players, string clubShort)
-        {
-            // Clear existing review list and populate with parsed records
-            _players.Clear();
-            foreach (var p in players) _players.Add(p);
-
-            _playerIndex = 0;
-            _inPlayerMode = true;
-
-            // Keep the club editor visible but read-only
-            ShortNameTextBox.IsEnabled = false;
-            LongNameTextBox.IsEnabled = false;
-
-            // Disable club navigation and actions while reviewing
-            PrevButton.IsEnabled = false;
-            NextButton.IsEnabled = false;
-            SaveButton.IsEnabled = false;
-            AddPlayerButton.IsEnabled = false;
-
-            // Show player editor panel and load first record into fields for review
-            PlayerEditorPanel.Visibility = Visibility.Visible;
-            ShowPlayer();
-            UpdatePlayerNavigationButtons();
-
-            UpdateStatus($"Loaded {players.Count} records for review. Use Next/Prev and press Add/Update to save.");
-        }
+        // Called by 'Update' / 'Add' UI button — validates and inserts/updates player
         private async void OnUpdatePlayerClicked(object sender, RoutedEventArgs e)
         {
             if (!_inPlayerMode || _vm is null) return;
@@ -706,12 +543,96 @@ namespace GolfApp1
             }
         }
 
-        // helper: show modal error and update status
-        private async Task ShowErrorAsync(string title, string message)
+        // Editor exit handlers wired in XAML
+        private void OnExitPlayerEditorClicked(object sender, RoutedEventArgs e)
         {
-            UpdateStatus(message);
-            var dlg = new ContentDialog { Title = title, Content = message, CloseButtonText = "OK", XamlRoot = this.Content?.XamlRoot };
-            if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
+            ExitPlayerMode();
+        }
+
+        private void OnEditorExitClicked(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_inPlayerMode)
+                {
+                    ExitPlayerMode();
+                }
+            }
+            catch { /* ignore */ }
+
+            EditorArea.Visibility = Visibility.Collapsed;
+            UpdateStatus("Editor closed.");
+        }
+
+        // Delete Player handler (with confirmation)
+        private async void OnDeletePlayerClicked(object sender, RoutedEventArgs e)
+        {
+            if (!_inPlayerMode || _vm is null || _db is null)
+            {
+                UpdateStatus("Player editor not active or database not initialized.");
+                await ShowErrorAsync("Delete Player", "Player editor not active or database not initialized.");
+                return;
+            }
+
+            if (_playerIndex < 0 || _playerIndex >= _players.Count)
+            {
+                UpdateStatus("No player selected to delete.");
+                await ShowErrorAsync("Delete Player", "No player selected to delete.");
+                return;
+            }
+
+            var player = _players[_playerIndex];
+            var confirm = new ContentDialog
+            {
+                Title = $"Delete player '{player.Name}'?",
+                Content = $"This will permanently delete player '{player.Name}' (code: {player.Code}). This action cannot be undone and will update the club's player count.",
+                PrimaryButtonText = "Delete",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            var res = ContentDialogResult.None;
+            if (this.Content?.XamlRoot != null) res = await confirm.ShowAsync();
+            if (res != ContentDialogResult.Primary)
+            {
+                UpdateStatus("Delete cancelled.");
+                return;
+            }
+
+            try
+            {
+                var err = await _db.DeletePlayerAsync(player.Id);
+                if (err != null)
+                {
+                    UpdateStatus("Delete failed: " + err);
+                    await ShowErrorAsync("Delete Player Failed", err);
+                    return;
+                }
+
+                _players.RemoveAt(_playerIndex);
+                if (_playerIndex >= _players.Count) _playerIndex = Math.Max(0, _players.Count - 1);
+                ShowPlayer();
+
+                await _vm.LoadClubsAsync();
+                RefreshLocalClubsFromVm();
+
+                var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+                if (!string.IsNullOrEmpty(clubShort))
+                {
+                    await _vm.LoadPlayersAsync(clubShort);
+                    _players.Clear();
+                    foreach (var p in _vm.Players) _players.Add(p);
+                    _playerIndex = Math.Min(_playerIndex, Math.Max(0, _players.Count - 1));
+                    ShowPlayer();
+                }
+
+                UpdateStatus($"Player '{player.Name}' deleted.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Delete player failed: " + ex.Message);
+                await ShowErrorAsync("Delete player failed", ex.Message);
+            }
         }
 
         private static string MapDbErrorToUserMessage(string dbError, string code)

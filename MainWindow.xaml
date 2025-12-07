@@ -143,6 +143,7 @@
                     <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
                     <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
                     <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="DeleteClubButton" Content="Delete Club" Click="OnDeleteClubClicked" Margin="8,0,0,0" />
                     <Button x:Name="AddPlayerButton" Content="Players" Click="OnAddPlayerClicked" Width="110" />
                     <Button x:Name="LoadFileButton" Content="Bulk Add" Click="OnBulkAddClicked" Width="160" />
                     <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
@@ -169,11 +170,13 @@
                         <TextBlock Text="Note:" Width="110" VerticalAlignment="Center" />
                         <TextBox x:Name="PlayerNoteTextBox" Width="360" MaxLength="20" PlaceholderText="Note" />
                     </StackPanel>
-
+  
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,0">
                         <Button x:Name="PrevPlayerButton" Content="◀ Prev Player" Click="OnPrevPlayerClicked" Width="110" />
                         <Button x:Name="NextPlayerButton" Content="Next Player ▶" Click="OnNextPlayerClicked" Width="110" />
                         <Button x:Name="UpdatePlayerButton" Content="Update" Click="OnUpdatePlayerClicked" Width="110" />
+                        <Button x:Name="DeletePlayerButton" Content="Delete Player" Click="OnDeletePlayerClicked" Margin="8,0,0,0" />
+                        <Button x:Name="AddPlayerSaveButton" Content="Add Player" Click="OnAddPlayerSaveClicked" Width="110" />
                         <Button x:Name="ExitPlayerEditorButton" Content="Exit" Click="OnExitPlayerEditorClicked" Width="110" />
                     </StackPanel>
                 </StackPanel>

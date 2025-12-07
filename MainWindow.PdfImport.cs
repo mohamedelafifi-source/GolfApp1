@@ -72,7 +72,7 @@ namespace GolfApp1
                 if (parsed == null || parsed.Count == 0)
                 {
                     UpdateStatus("No lines parsed from PDF.");
-                    await ShowErrorAsync("Import", "No lines were parsed from the selected PDF.");
+                    await LocalShowErrorAsync("Import", "No lines were parsed from the selected PDF.");
                     return;
                 }
 
@@ -273,7 +273,7 @@ namespace GolfApp1
                     if (_db is null)
                     {
                         UpdateStatus("Database not initialized.");
-                        await ShowErrorAsync("Import failed", "Database not initialized.");
+                        await LocalShowErrorAsync("Import failed", "Database not initialized.");
                         return;
                     }
 
@@ -369,11 +369,11 @@ namespace GolfApp1
                     if (failed > 0)
                     {
                         var details = string.Join("\n", errors.Take(50));
-                        await ShowErrorAsync("Import completed with errors", summary + "\n\n" + details);
+                        await LocalShowErrorAsync("Import completed with errors", summary + "\n\n" + details);
                     }
                     else
                     {
-                        await ShowErrorAsync("Import complete", summary);
+                        await LocalShowErrorAsync("Import complete", summary);
                     }
                 }
                 else
@@ -384,18 +384,18 @@ namespace GolfApp1
             catch (Exception ex)
             {
                 UpdateStatus("Preview failed: " + ex.Message);
-                await ShowErrorAsync("Preview failed", ex.Message);
+                await LocalShowErrorAsync("Preview failed", ex.Message);
             }
         }
 
-        // Build and show a club-grouped preview using the players DB.
-        // Matching now uses normalized names (diacritics removed, case-insensitive) and Jaro-Winkler fuzzy fallback.
-        private async Task ShowClubGroupedPreviewAsync(List<(string Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
+
+        
+        private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
-                await ShowErrorAsync("Club Preview", "Database not initialized.");
+                await LocalShowErrorAsync("Club Preview", "Database not initialized.");
                 return;
             }
 
@@ -428,7 +428,7 @@ namespace GolfApp1
                 if (nameToClub.TryGetValue(normalized, out var clubShort))
                 {
                     if (!grouped.ContainsKey(clubShort)) grouped[clubShort] = new List<(string, string, string, int)>();
-                    grouped[clubShort].Add((r.Name, r.Points, r.Handicap, r.Position));
+                    grouped[clubShort].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position));
                     continue;
                 }
 
@@ -450,18 +450,18 @@ namespace GolfApp1
                 {
                     var matchedClub = nameToClub[bestKey];
                     if (!grouped.ContainsKey(matchedClub)) grouped[matchedClub] = new List<(string, string, string, int)>();
-                    grouped[matchedClub].Add((r.Name, r.Points, r.Handicap, r.Position));
+                    grouped[matchedClub].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position));
                 }
                 else
                 {
                     if (!grouped.ContainsKey(unknownKey)) grouped[unknownKey] = new List<(string, string, string, int)>();
-                    grouped[unknownKey].Add((r.Name, r.Points, r.Handicap, r.Position));
+                    grouped[unknownKey].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position));
                 }
             }
 
             if (grouped.Count == 0)
             {
-                await ShowErrorAsync("Club Preview", "No players matched clubs in the database.");
+                await LocalShowErrorAsync("Club Preview", "No players matched clubs in the database.");
                 return;
             }
 
@@ -484,10 +484,10 @@ namespace GolfApp1
                 var headerRow = new Grid
                 {
                     ColumnDefinitions = {
-                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                        new ColumnDefinition { Width = new GridLength(80) },
-                        new ColumnDefinition { Width = new GridLength(80) }
-                    },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(80) },
+                new ColumnDefinition { Width = new GridLength(80) }
+            },
                     Margin = new Thickness(0, 4, 0, 2)
                 };
                 headerRow.Children.Add(new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -504,10 +504,10 @@ namespace GolfApp1
                     var r = new Grid
                     {
                         ColumnDefinitions = {
-                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                            new ColumnDefinition { Width = new GridLength(80) },
-                            new ColumnDefinition { Width = new GridLength(80) }
-                        },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = new GridLength(80) },
+                    new ColumnDefinition { Width = new GridLength(80) }
+                },
                         Margin = new Thickness(0, 2, 0, 2)
                     };
                     r.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
@@ -538,6 +538,18 @@ namespace GolfApp1
             }
 
             await dlg.ShowAsync();
+        }
+
+
+
+
+        // Local UI helper used inside this file to avoid cross-file symbol issues during incremental edits.
+        // This duplicates behavior of the shared ShowErrorAsync but is scoped to PdfImport.cs only.
+        private async Task LocalShowErrorAsync(string title, string message)
+        {
+            UpdateStatus(message);
+            var dlg = new ContentDialog { Title = title, Content = message, CloseButtonText = "OK", XamlRoot = this.Content?.XamlRoot };
+            if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
         }
 
         // Remove diacritics and normalize spacing/casing
