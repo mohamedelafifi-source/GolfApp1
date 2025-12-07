@@ -17,7 +17,7 @@ using GolfApp1.Models;
 
 namespace GolfApp1
 {
-    public sealed partial class MainWindow : Window
+    public sealed partial class MainWindow
     {
         // Set to true to select the preview TSV in Explorer after parsing.
         private readonly bool _openExplorerAfterExport = false;
@@ -47,7 +47,7 @@ namespace GolfApp1
 
             try
             {
-                return await picker.PickSingleFileAsync();
+                return await picker.PickSingleFileAsync().AsTask();
             }
             catch
             {
@@ -56,6 +56,8 @@ namespace GolfApp1
         }
 
         // Preview-only. Extracts Name, Points, Handicap and shows a selectable import UI.
+        // Adds "Club Preview" as the secondary action which groups parsed rows by the
+        // club found in the players DB (matching by name) and shows a club-specific preview.
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -72,19 +74,20 @@ namespace GolfApp1
                     return;
                 }
 
-                // Temp folder + raw lines dump for inspection
+                // write raw parsed lines to temp file so you can copy/upload them
                 var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
                 Directory.CreateDirectory(tempDir);
                 var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
                 File.WriteAllLines(rawPath, parsed.Select(p => p.RawLine ?? string.Empty));
 
-                // Regexes
+                // Core regex: operate on truncated text up to first ')' to ignore trailing "Last Nine Holes" etc.
                 var truncatedEntryRx = new Regex(
                     @"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<points>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<hc>[+-]?\d{1,2}(?:\.\d)?)\s*\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
                 var parAny = new Regex(@"\((?<inside>[^)]*)\)", RegexOptions.Compiled);
 
-                // Build concrete list to guarantee reliable UI access
+                // Build concrete list of preview rows to avoid anonymous-type/runtime access issues
                 var extractedRows = new List<(string Name, string Points, string Handicap, string Raw, int Position)>();
 
                 foreach (var p in parsed)
@@ -113,7 +116,7 @@ namespace GolfApp1
                     {
                         var inside = par.Groups["inside"].Value;
                         var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
-                        var hcFound = numMatch.Success ? numMatch.Value.Trim().TrimStart('+') : "—";
+                        var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
 
                         var before = truncated.Substring(0, par.Index).Trim();
                         var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -148,7 +151,7 @@ namespace GolfApp1
                     extractedRows.Add((fallbackName, fallbackPoints, fallbackHc, raw, posFallback));
                 }
 
-                // write preview TSV
+                // write extracted preview lines to temp file (tab-separated) for sharing
                 var previewPath = Path.Combine(tempDir, $"parsed_preview_{DateTime.Now:yyyyMMdd_HHmmss}.tsv");
                 File.WriteAllLines(previewPath, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
                     .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
@@ -159,141 +162,45 @@ namespace GolfApp1
                     {
                         Process.Start(new ProcessStartInfo("explorer", $"/select,\"{previewPath}\"") { UseShellExecute = true });
                     }
-                    catch { }
+                    catch { /* ignore */ }
                 }
 
-                // Build UI with proper layout
-                var panel = new StackPanel { Spacing = 8, Margin = new Thickness(10) };
-
-                // Header row using Grid for proper alignment
-                var header = new Grid { Margin = new Thickness(0, 0, 0, 10) };
-                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
-                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-                header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-
-                var importHeader = new TextBlock
-                {
-                    Text = "Import",
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(importHeader, 0);
-                header.Children.Add(importHeader);
-
-                var nameHeader = new TextBlock
-                {
-                    Text = "Name",
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(nameHeader, 1);
-                header.Children.Add(nameHeader);
-
-                var pointsHeader = new TextBlock
-                {
-                    Text = "Points",
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(pointsHeader, 2);
-                header.Children.Add(pointsHeader);
-
-                var hcHeader = new TextBlock
-                {
-                    Text = "Handicap",
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(hcHeader, 3);
-                header.Children.Add(hcHeader);
-
+                // Build preview UI
+                var panel = new StackPanel { Spacing = 6 };
+                var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                header.Children.Add(new TextBlock { Text = "Import", Width = 60, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                header.Children.Add(new TextBlock { Text = "Name", Width = 340, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                header.Children.Add(new TextBlock { Text = "Points", Width = 80, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
+                header.Children.Add(new TextBlock { Text = "Handicap", Width = 100, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
                 panel.Children.Add(header);
 
-                // Add separator
-                var separator = new Border
-                {
-                    Height = 1,
-                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray),
-                    Margin = new Thickness(0, 0, 0, 10)
-                };
-                panel.Children.Add(separator);
-
                 var checkBoxes = new List<CheckBox>();
-
                 foreach (var e in extractedRows.Take(500))
                 {
-                    var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
-                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-
-                    var cb = new CheckBox
-                    {
-                        IsChecked = true,
-                        Tag = e,
-                        VerticalAlignment = VerticalAlignment.Center
-                    };
+                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                    var cb = new CheckBox { IsChecked = true, Width = 60, Tag = e }; // tuple in Tag
                     checkBoxes.Add(cb);
-                    Grid.SetColumn(cb, 0);
                     row.Children.Add(cb);
 
-                    var nameText = new TextBlock
-                    {
-                        Text = e.Name,
-                        TextWrapping = TextWrapping.Wrap,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(5, 0, 5, 0)
-                    };
-                    Grid.SetColumn(nameText, 1);
-                    row.Children.Add(nameText);
+                    row.Children.Add(new TextBlock { Text = e.Name, Width = 340, TextWrapping = TextWrapping.Wrap });
+                    row.Children.Add(new TextBlock { Text = e.Points, Width = 80, TextAlignment = TextAlignment.Center });
 
-                    var pointsText = new TextBlock
-                    {
-                        Text = e.Points,
-                        TextAlignment = TextAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-                    };
-                    Grid.SetColumn(pointsText, 2);
-                    row.Children.Add(pointsText);
-
-                    var hcDisplay = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—"
-                        ? "—"
-                        : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
-
-                    var hcText = new TextBlock
-                    {
-                        Text = hcDisplay,
-                        TextAlignment = TextAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-                    };
-                    Grid.SetColumn(hcText, 3);
-                    row.Children.Add(hcText);
+                    var hcText = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—" ? "—" : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
+                    row.Children.Add(new TextBlock { Text = hcText, Width = 100, TextAlignment = TextAlignment.Center });
 
                     panel.Children.Add(row);
                 }
 
-                var scroll = new ScrollViewer
-                {
-                    Content = panel,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    MaxHeight = 600,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
-                };
+                var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
 
                 var previewDlg = new ContentDialog
                 {
                     Title = $"PDF Parse Preview — {file.Name}",
                     Content = scroll,
                     PrimaryButtonText = "Import Selected",
+                    SecondaryButtonText = "Club Preview",
                     CloseButtonText = "Close",
-                    XamlRoot = this.Content?.XamlRoot,
-                    DefaultButton = ContentDialogButton.Close
+                    XamlRoot = this.Content?.XamlRoot
                 };
 
                 if (this.Content?.XamlRoot == null)
@@ -303,6 +210,16 @@ namespace GolfApp1
                 }
 
                 var result = await previewDlg.ShowAsync();
+
+                if (result == ContentDialogResult.Secondary)
+                {
+                    // Show club-grouped preview
+                    await ShowClubGroupedPreviewAsync(extractedRows);
+                    // after club preview returns, re-open the main preview so user can continue import if desired
+                    await PreviewPdfFileAsync(file);
+                    return;
+                }
+
                 if (result == ContentDialogResult.Primary)
                 {
                     if (_db is null)
@@ -387,6 +304,110 @@ namespace GolfApp1
                 UpdateStatus("Preview failed: " + ex.Message);
                 await ShowErrorAsync("Preview failed", ex.Message);
             }
+        }
+
+        // Build and show a club-grouped preview using the players DB.
+        private async Task ShowClubGroupedPreviewAsync(List<(string Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
+        {
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await ShowErrorAsync("Club Preview", "Database not initialized.");
+                return;
+            }
+
+            // Build a lookup of player name -> club short name by iterating clubs and players
+            var clubs = await _db.GetAllClubsAsync();
+            var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var clubLookup = clubs.ToDictionary(c => c.ShortName, c => c);
+
+            foreach (var club in clubs)
+            {
+                var players = await _db.GetPlayersByClubAsync(club.ShortName);
+                foreach (var pl in players)
+                {
+                    var key = Regex.Replace(pl.Name ?? string.Empty, @"\s+", " ").Trim();
+                    if (!string.IsNullOrWhiteSpace(key) && !nameToClub.ContainsKey(key))
+                    {
+                        nameToClub[key] = club.ShortName;
+                    }
+                }
+            }
+
+            // Group parsed results by discovered club (or "Unknown")
+            var grouped = new Dictionary<string, List<(string Name, string Points, string Handicap, int Position)>>();
+
+            string unknownKey = "__UNKNOWN__";
+            foreach (var r in extractedRows)
+            {
+                var normalized = Regex.Replace(r.Name ?? string.Empty, @"\s+", " ").Trim();
+                if (nameToClub.TryGetValue(normalized, out var clubShort))
+                {
+                    if (!grouped.ContainsKey(clubShort)) grouped[clubShort] = new List<(string, string, string, int)>();
+                    grouped[clubShort].Add((r.Name, r.Points, r.Handicap, r.Position));
+                }
+                else
+                {
+                    if (!grouped.ContainsKey(unknownKey)) grouped[unknownKey] = new List<(string, string, string, int)>();
+                    grouped[unknownKey].Add((r.Name, r.Points, r.Handicap, r.Position));
+                }
+            }
+
+            if (grouped.Count == 0)
+            {
+                await ShowErrorAsync("Club Preview", "No players matched clubs in the database.");
+                return;
+            }
+
+            // Build UI: for each club show header and sorted rows by player name
+            var panel = new StackPanel { Spacing = 10 };
+            foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
+            {
+                string clubShort = kv.Key;
+                string clubDisplay = clubShort == unknownKey ? "Unknown Club" : (clubLookup.TryGetValue(clubShort, out var c) ? $"{c.LongName} ({c.ShortName})" : clubShort);
+
+                // club header
+                panel.Children.Add(new TextBlock
+                {
+                    Text = clubDisplay,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                // header row
+                var headerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                headerRow.Children.Add(new TextBlock { Text = "Name", Width = 340, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                headerRow.Children.Add(new TextBlock { Text = "Points", Width = 80, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
+                headerRow.Children.Add(new TextBlock { Text = "Handicap", Width = 100, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
+                panel.Children.Add(headerRow);
+
+                foreach (var row in kv.Value.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var r = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                    r.Children.Add(new TextBlock { Text = row.Name, Width = 340, TextWrapping = TextWrapping.Wrap });
+                    r.Children.Add(new TextBlock { Text = row.Points, Width = 80, TextAlignment = TextAlignment.Center });
+                    var hcText = string.IsNullOrWhiteSpace(row.Handicap) || row.Handicap == "—" ? "—" : (row.Handicap.StartsWith("(") ? row.Handicap : $"({row.Handicap})");
+                    r.Children.Add(new TextBlock { Text = hcText, Width = 100, TextAlignment = TextAlignment.Center });
+                    panel.Children.Add(r);
+                }
+            }
+
+            var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
+            var dlg = new ContentDialog
+            {
+                Title = "Club Results Preview (grouped)",
+                Content = scroll,
+                CloseButtonText = "Close",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            if (this.Content?.XamlRoot == null)
+            {
+                UpdateStatus("Club preview created (UI unavailable).");
+                return;
+            }
+
+            await dlg.ShowAsync();
         }
     }
 }
