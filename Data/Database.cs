@@ -1,4 +1,3 @@
-
 //Database.cs
 //==============
 using System;
@@ -95,13 +94,20 @@ CREATE TABLE IF NOT EXISTS Results (
         }
 
         // Clubs
+        // NOTE: compute NumberOfPlayers from Players table to avoid stored-count drift.
         public async Task<List<Club>> GetAllClubsAsync()
         {
             var list = new List<Club>();
             if (_conn is null) return list;
 
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, ShortName, LongName, NumberOfPlayers FROM Clubs ORDER BY RowId;";
+            cmd.CommandText = @"
+SELECT c.Id, c.ShortName, c.LongName,
+       COUNT(p.Id) AS NumberOfPlayers
+FROM Clubs c
+LEFT JOIN Players p ON p.ClubShortName = c.ShortName
+GROUP BY c.Id, c.ShortName, c.LongName
+ORDER BY c.ShortName;"; // stable ordering
             using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
             {
@@ -263,7 +269,8 @@ WHERE Id = $id;";
             var list = new List<Player>();
             if (_conn is null) return list;
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note FROM Players WHERE ClubShortName = $club ORDER BY RowId;";
+            // deterministic ordering by Code
+            cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note FROM Players WHERE ClubShortName = $club ORDER BY Code;";
             cmd.Parameters.AddWithValue("$club", clubShort);
             using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
@@ -339,6 +346,34 @@ WHERE Id = $id;";
             }
         }
 
+        public async Task<string?> RecomputeClubPlayerCountsAsync()
+        {
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = @"
+UPDATE Clubs
+SET NumberOfPlayers = (
+    SELECT COUNT(1) FROM Players WHERE Players.ClubShortName = Clubs.ShortName
+);";
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
         public async Task<int> GetResultsCountByPlayerIdAsync(string playerId)
         {
             if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
@@ -358,6 +393,7 @@ WHERE Id = $id;";
                 return -1;
             }
         }
+
         public async Task<string?> DeleteClubAsync(string clubShort)
         {
             if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
@@ -395,6 +431,7 @@ WHERE Id = $id;";
                 return ex.Message;
             }
         }
+
         /// <summary>
         /// Public helper to delete all Results that reference a given player id (as PlayerId or PartnerId).
         /// Returns null on success or an error message.
@@ -488,7 +525,8 @@ VALUES ($id, $date, $club, $venue, $playerId, $partnerId, $playerName, $partnerN
                 sql += " AND Date <= $to";
                 cmd.Parameters.AddWithValue("$to", to.Value.ToString("yyyy-MM-dd"));
             }
-            sql += " ORDER BY Date, RowId;";
+            // deterministic ordering by Date then Id
+            sql += " ORDER BY Date, Id;";
             cmd.CommandText = sql;
 
             using var rdr = await cmd.ExecuteReaderAsync();

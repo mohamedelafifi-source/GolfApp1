@@ -136,6 +136,12 @@
                         <TextBlock Text="Long name:" Width="110" VerticalAlignment="Center" />
                         <TextBox x:Name="LongNameTextBox" Width="360" MaxLength="20" PlaceholderText="Up to 20 chars" TextChanged="OnNameFieldsTextChanged" />
                     </StackPanel>
+
+                    <!-- NEW: display number of players in the current club -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Players:" Width="110" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ClubPlayersLabel" Text="0" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Club action buttons -->
@@ -170,7 +176,7 @@
                         <TextBlock Text="Note:" Width="110" VerticalAlignment="Center" />
                         <TextBox x:Name="PlayerNoteTextBox" Width="360" MaxLength="20" PlaceholderText="Note" />
                     </StackPanel>
-  
+
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,0">
                         <Button x:Name="PrevPlayerButton" Content="◀ Prev Player" Click="OnPrevPlayerClicked" Width="110" />
                         <Button x:Name="NextPlayerButton" Content="Next Player ▶" Click="OnNextPlayerClicked" Width="110" />
