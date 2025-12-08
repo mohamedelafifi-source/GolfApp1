@@ -563,7 +563,175 @@ namespace GolfApp1
             EditorArea.Visibility = Visibility.Collapsed;
             UpdateStatus("Editor closed.");
         }
+       
 
+        private async void OnDeletePlayerClicked(object sender, RoutedEventArgs e)
+        {
+            if (!_inPlayerMode || _vm is null || _db is null)
+            {
+                UpdateStatus("Player editor not active or database not initialized.");
+                await ShowErrorAsync("Delete Player", "Player editor not active or database not initialized.");
+                return;
+            }
+
+            if (_playerIndex < 0 || _playerIndex >= _players.Count)
+            {
+                UpdateStatus("No player selected to delete.");
+                await ShowErrorAsync("Delete Player", "No player selected to delete.");
+                return;
+            }
+
+            var player = _players[_playerIndex];
+
+            // Check for dependent results and require explicit confirmation if any exist.
+            int resultsCount = 0;
+            try
+            {
+                resultsCount = await _db.GetResultsCountByPlayerIdAsync(player.Id);
+            }
+            catch
+            {
+                // non-fatal: treat as unknown / proceed with conservative confirmation
+                resultsCount = -1;
+            }
+
+            string content;
+            if (resultsCount > 0)
+            {
+                content = $"Player '{player.Name}' (code: {player.Code}) has {resultsCount} result(s) recorded. Deleting the player will also remove those result(s). Are you sure you want to delete the player and all their results?";
+            }
+            else if (resultsCount == 0)
+            {
+                content = $"This will permanently delete player '{player.Name}' (code: {player.Code}). This action cannot be undone and will update the club's player count.";
+            }
+            else
+            {
+                // resultsCount == -1 (error reading), ask conservative confirmation
+                content = $"This will permanently delete player '{player.Name}' (code: {player.Code}). There was an error checking for related results; deletion may fail if dependent results exist. Continue?";
+            }
+
+            var confirm = new ContentDialog
+            {
+                Title = resultsCount > 0 ? $"Delete player and {(resultsCount > 0 ? resultsCount.ToString() : "their")} result(s)?" : $"Delete player '{player.Name}'?",
+                Content = content,
+                PrimaryButtonText = "Delete",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            var res = ContentDialogResult.None;
+            if (this.Content?.XamlRoot != null) res = await confirm.ShowAsync();
+            if (res != ContentDialogResult.Primary)
+            {
+                UpdateStatus("Delete cancelled.");
+                return;
+            }
+
+            try
+            {
+                var err = await _db.DeletePlayerAsync(player.Id);
+                if (err != null)
+                {
+                    UpdateStatus("Delete failed: " + err);
+                    await ShowErrorAsync("Delete Player Failed", err);
+                    return;
+                }
+
+                _players.RemoveAt(_playerIndex);
+                if (_playerIndex >= _players.Count) _playerIndex = Math.Max(0, _players.Count - 1);
+                ShowPlayer();
+
+                await _vm.LoadClubsAsync();
+                RefreshLocalClubsFromVm();
+
+                var clubShort = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+                if (!string.IsNullOrEmpty(clubShort))
+                {
+                    await _vm.LoadPlayersAsync(clubShort);
+                    _players.Clear();
+                    foreach (var p in _vm.Players) _players.Add(p);
+                    _playerIndex = Math.Min(_playerIndex, Math.Max(0, _players.Count - 1));
+                    ShowPlayer();
+                }
+
+                UpdateStatus($"Player '{player.Name}' deleted.");
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            {
+                // Constraint violation (likely FK: player has dependent results) — ask to cascade delete
+                UpdateStatus("Delete failed due to constraint (player may have results).");
+
+                var dlg = new ContentDialog
+                {
+                    Title = "Delete player failed",
+                    Content = "This player has dependent results in the database. You can either remove those results first or delete the player and all their results now. Delete all results and the player?",
+                    PrimaryButtonText = "Delete results + player",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content?.XamlRoot
+                };
+
+                var confirmCascade = ContentDialogResult.None;
+                if (this.Content?.XamlRoot != null) confirmCascade = await dlg.ShowAsync();
+                if (confirmCascade != ContentDialogResult.Primary)
+                {
+                    await ShowErrorAsync("Delete Player", "Player not deleted. Remove related results first to allow deletion.");
+                    return;
+                }
+
+                try
+                {
+                    var delErr = await _db.DeleteResultsByPlayerIdAsync(player.Id);
+                    if (!string.IsNullOrEmpty(delErr))
+                    {
+                        UpdateStatus("Failed to delete related results: " + delErr);
+                        await ShowErrorAsync("Delete Results Failed", delErr);
+                        return;
+                    }
+
+                    // retry deleting the player
+                    var err2 = await _db.DeletePlayerAsync(player.Id);
+                    if (err2 != null)
+                    {
+                        UpdateStatus("Delete failed after removing results: " + err2);
+                        await ShowErrorAsync("Delete Player Failed", err2);
+                        return;
+                    }
+
+                    // success — update UI
+                    _players.RemoveAt(_playerIndex);
+                    if (_playerIndex >= _players.Count) _playerIndex = Math.Max(0, _players.Count - 1);
+                    ShowPlayer();
+
+                    await _vm.LoadClubsAsync();
+                    RefreshLocalClubsFromVm();
+
+                    var clubShort2 = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(clubShort2))
+                    {
+                        await _vm.LoadPlayersAsync(clubShort2);
+                        _players.Clear();
+                        foreach (var p in _vm.Players) _players.Add(p);
+                        _playerIndex = Math.Min(_playerIndex, Math.Max(0, _players.Count - 1));
+                        ShowPlayer();
+                    }
+
+                    UpdateStatus($"Player '{player.Name}' and related results deleted.");
+                }
+                catch (Exception ex2)
+                {
+                    UpdateStatus("Cascade delete failed: " + ex2.Message);
+                    await ShowErrorAsync("Delete Player", "Cascade delete failed: " + ex2.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Delete player failed: " + ex.Message);
+                await ShowErrorAsync("Delete player failed", ex.Message);
+            }
+        }
+
+        /*
+        //Start of replace
         // Delete Player handler (with confirmation) - enhanced to handle FK constraint by offering cascade delete
         private async void OnDeletePlayerClicked(object sender, RoutedEventArgs e)
         {
@@ -750,7 +918,8 @@ namespace GolfApp1
                 
             }
         }
-
+        // End of replace
+        */
         private static string MapDbErrorToUserMessage(string dbError, string code)
         {
             if (string.IsNullOrEmpty(dbError)) return "A database error occurred.";

@@ -338,6 +338,26 @@ WHERE Id = $id;";
                 return ex.Message;
             }
         }
+
+        public async Task<int> GetResultsCountByPlayerIdAsync(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var cmd = _conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(1) FROM Results WHERE PlayerId = $id OR PartnerId = $id;";
+                cmd.Parameters.AddWithValue("$id", playerId);
+                var scalar = await cmd.ExecuteScalarAsync();
+                return scalar == null || scalar == DBNull.Value ? 0 : Convert.ToInt32(scalar);
+            }
+            catch (SqliteException)
+            {
+                // propagate as -1 so callers treat as error (or change to throw if you prefer)
+                return -1;
+            }
+        }
         public async Task<string?> DeleteClubAsync(string clubShort)
         {
             if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
