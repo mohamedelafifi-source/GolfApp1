@@ -390,7 +390,55 @@ namespace GolfApp1
                 }
                 else
                 {
-                    UpdateStatus($"Preview cancelled. Files: {rawPath}, {previewPath}");
+                    //The following line shows too much data in the status bar
+                    //UpdateStatus($"Preview cancelled. Files: {rawPath}, {previewPath}");
+                    UpdateStatus($"Preview cancelled");
+                }
+
+                // -----------------------------------------------------------------------
+                // Offer to create permanent copies of the temporary parsed files
+                // (user requested these not be deleted; temp files remain in tempDir)
+                // -----------------------------------------------------------------------
+                try
+                {
+                    if (!string.IsNullOrEmpty(tempDir) && File.Exists(previewPath) && File.Exists(rawPath) && this.Content?.XamlRoot != null)
+                    {
+                        var saveDlg = new ContentDialog
+                        {
+                            Title = "Save parsed files?",
+                            Content = $"Temporary parsed files were written to:\n{tempDir}\n\nWould you like to save permanent copies to your application data folder for later use?",
+                            PrimaryButtonText = "Save",
+                            CloseButtonText = "Don't save",
+                            XamlRoot = this.Content?.XamlRoot
+                        };
+
+                        var saveRes = await saveDlg.ShowAsync();
+                        if (saveRes == ContentDialogResult.Primary)
+                        {
+                            try
+                            {
+                                var destRoot = Path.Combine(AppStorage.GetDataFolder(), "ParsedExports");
+                                Directory.CreateDirectory(destRoot);
+
+                                var rawDest = Path.Combine(destRoot, Path.GetFileName(rawPath));
+                                var previewDest = Path.Combine(destRoot, Path.GetFileName(previewPath));
+
+                                File.Copy(rawPath, rawDest, overwrite: true);
+                                File.Copy(previewPath, previewDest, overwrite: true);
+
+                                UpdateStatus($"Saved parsed files to: {destRoot}");
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Failed to save parsed files: " + ex.Message);
+                                await LocalShowErrorAsync("Save parsed files failed", ex.Message);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // non-fatal — leave temp files in place
                 }
             }
             catch (Exception ex)
