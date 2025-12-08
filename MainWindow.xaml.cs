@@ -1,4 +1,3 @@
-
 //MainWindow.xaml.cs
 using GolfApp1.Data;
 using GolfApp1.Models;
@@ -9,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Windows.Storage;
@@ -120,7 +120,7 @@ namespace GolfApp1
         }
 
         // ---------------- Initialization ----------------
-        
+
         private void OnAddPlayerSaveClicked(object sender, RoutedEventArgs e)
         {
             // Reuse existing Add/Update logic implemented in OnUpdatePlayerClicked
@@ -564,7 +564,7 @@ namespace GolfApp1
             UpdateStatus("Editor closed.");
         }
 
-        // Delete Player handler (with confirmation)
+        // Delete Player handler (with confirmation) - enhanced to handle FK constraint by offering cascade delete
         private async void OnDeletePlayerClicked(object sender, RoutedEventArgs e)
         {
             if (!_inPlayerMode || _vm is null || _db is null)
@@ -628,10 +628,126 @@ namespace GolfApp1
 
                 UpdateStatus($"Player '{player.Name}' deleted.");
             }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            {
+                // Constraint violation (likely FK: player has dependent results)
+                UpdateStatus("Delete failed due to constraint (player may have results).");
+
+                var dlg = new ContentDialog
+                {
+                    Title = "Delete player failed",
+                    Content = "This player has dependent results in the database. You can either remove those results first or delete the player and all their results now. Delete all results and the player?",
+                    PrimaryButtonText = "Delete results + player",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content?.XamlRoot
+                };
+
+                var confirmCascade = ContentDialogResult.None;
+                if (this.Content?.XamlRoot != null) confirmCascade = await dlg.ShowAsync();
+                if (confirmCascade != ContentDialogResult.Primary)
+                {
+                    await ShowErrorAsync("Delete Player", "Player not deleted. Remove related results first to allow deletion.");
+                    return;
+                }
+
+                try
+                {
+                    // Try to find a DB helper to delete related results (matches common naming)
+                    MethodInfo? delResultsMethod = null;
+                    var dbType = _db.GetType();
+                    var candidateMethods = dbType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+                    foreach (var m in candidateMethods)
+                    {
+                        if (m.Name.IndexOf("DeleteResult", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                            m.GetParameters().Length == 1 &&
+                            m.GetParameters()[0].ParameterType == typeof(string))
+                        {
+                            delResultsMethod = m;
+                            break;
+                        }
+                    }
+
+                    if (delResultsMethod != null)
+                    {
+                        var taskObj = delResultsMethod.Invoke(_db, new object[] { player.Id });
+                        if (taskObj is Task task)
+                        {
+                            await task.ConfigureAwait(false);
+
+                            // If Task<TResult> returned a string error, extract it
+                            string? delErr = null;
+                            var ttype = task.GetType();
+                            if (ttype.IsGenericType)
+                            {
+                                var resultProp = ttype.GetProperty("Result");
+                                var resultVal = resultProp?.GetValue(task);
+                                delErr = resultVal as string;
+                            }
+
+                            if (!string.IsNullOrEmpty(delErr))
+                            {
+                                UpdateStatus("Failed to delete related results: " + delErr);
+                                await ShowErrorAsync("Delete Results Failed", delErr);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            var info = "Database helper found but did not return a Task. Remove results manually or update the Database helper.";
+                            UpdateStatus(info);
+                            await ShowErrorAsync("Delete Player", info);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        var info = "Database layer does not expose a DeleteResults... helper that takes a player Id. Remove results manually or add such a helper to Database.";
+                        UpdateStatus(info);
+                        await ShowErrorAsync("Delete Player", info);
+                        return;
+                    }
+
+                    // retry deleting the player
+                    var err2 = await _db.DeletePlayerAsync(player.Id);
+                    if (err2 != null)
+                    {
+                        UpdateStatus("Delete failed after removing results: " + err2);
+                        await ShowErrorAsync("Delete Player Failed", err2);
+                        return;
+                    }
+
+                    // success — update UI as above
+                    _players.RemoveAt(_playerIndex);
+                    if (_playerIndex >= _players.Count) _playerIndex = Math.Max(0, _players.Count - 1);
+                    ShowPlayer();
+
+                    await _vm.LoadClubsAsync();
+                    RefreshLocalClubsFromVm();
+
+                    var clubShort2 = ShortNameTextBox.Text?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(clubShort2))
+                    {
+                        await _vm.LoadPlayersAsync(clubShort2);
+                        _players.Clear();
+                        foreach (var p in _vm.Players) _players.Add(p);
+                        _playerIndex = Math.Min(_playerIndex, Math.Max(0, _players.Count - 1));
+                        ShowPlayer();
+                    }
+
+                    UpdateStatus($"Player '{player.Name}' and related results deleted.");
+                }
+                catch (Exception ex2)
+                {
+                    UpdateStatus("Cascade delete failed: " + ex2.Message);
+                    await ShowErrorAsync("Delete Player", "Cascade delete failed: " + ex2.Message);
+                }
+            }
             catch (Exception ex)
             {
                 UpdateStatus("Delete player failed: " + ex.Message);
                 await ShowErrorAsync("Delete player failed", ex.Message);
+
+                
             }
         }
 

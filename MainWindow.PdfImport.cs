@@ -631,6 +631,9 @@ namespace GolfApp1
                 var lastSim = JaroWinkler(lastA, lastB);
                 var firstSim = JaroWinkler(firstA, firstB);
 
+                // This weight distribution favors last name more heavily
+                // slightly more weight to surname now
+                //===============================================================
                 var combined = (0.75 * lastSim) + (0.25 * firstSim); // slightly more weight to surname now
 
                 // If exact multi-token last-name match (including particle) boost high

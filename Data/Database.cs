@@ -25,6 +25,14 @@ namespace GolfApp1.Data
             _conn = new SqliteConnection(cs);
             await _conn.OpenAsync();
 
+            // Ensure foreign key enforcement is enabled for this connection.
+            // SQLite requires PRAGMA foreign_keys = ON per connection.
+            using (var fkCmd = _conn.CreateCommand())
+            {
+                fkCmd.CommandText = "PRAGMA foreign_keys = ON;";
+                await fkCmd.ExecuteNonQueryAsync();
+            }
+
             // Clubs
             var createClubs = @"
 CREATE TABLE IF NOT EXISTS Clubs (
@@ -148,6 +156,13 @@ VALUES ($id, $club, $code, $name, $index, $note);";
                 cmd.Parameters.AddWithValue("$index", string.IsNullOrEmpty(player.IndexValue) ? (object)DBNull.Value : player.IndexValue);
                 cmd.Parameters.AddWithValue("$note", string.IsNullOrEmpty(player.Note) ? (object)DBNull.Value : player.Note);
                 await cmd.ExecuteNonQueryAsync();
+
+                using var incCmd = _conn.CreateCommand();
+                incCmd.Transaction = tran;
+                incCmd.CommandText = "UPDATE Clubs SET NumberOfPlayers = NumberOfPlayers + 1 WHERE ShortName = $club;";
+                incCmd.Parameters.AddWithValue("$club", player.ClubShortName);
+                await incCmd.ExecuteNonQueryAsync();
+
                 await tran.CommitAsync();
                 return (true, null);
             }
@@ -266,7 +281,8 @@ WHERE Id = $id;";
             return list;
         }
 
-        // Delete player and update club counts
+        // Delete player and update club counts.
+        // This implementation deletes any Results that reference the player first to avoid FK violations.
         public async Task<string?> DeletePlayerAsync(string playerId)
         {
             if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
@@ -283,6 +299,15 @@ WHERE Id = $id;";
                 clubCmd.Parameters.AddWithValue("$id", playerId);
                 var scalar = await clubCmd.ExecuteScalarAsync();
                 var club = scalar == null || scalar == DBNull.Value ? null : Convert.ToString(scalar);
+
+                // delete any results that reference this player (player or partner)
+                using (var delResultsCmd = _conn.CreateCommand())
+                {
+                    delResultsCmd.Transaction = tran;
+                    delResultsCmd.CommandText = "DELETE FROM Results WHERE PlayerId = $id OR PartnerId = $id;";
+                    delResultsCmd.Parameters.AddWithValue("$id", playerId);
+                    await delResultsCmd.ExecuteNonQueryAsync();
+                }
 
                 // delete player
                 using var delCmd = _conn.CreateCommand();
@@ -313,8 +338,6 @@ WHERE Id = $id;";
                 return ex.Message;
             }
         }
-
-        // Delete club (only when no players exist) - returns error message if not allowed
         public async Task<string?> DeleteClubAsync(string clubShort)
         {
             if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
@@ -340,6 +363,35 @@ WHERE Id = $id;";
                 delCmd.CommandText = "DELETE FROM Clubs WHERE ShortName = $club;";
                 delCmd.Parameters.AddWithValue("$club", clubShort);
                 await delCmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+        /// <summary>
+        /// Public helper to delete all Results that reference a given player id (as PlayerId or PartnerId).
+        /// Returns null on success or an error message.
+        /// </summary>
+        public async Task<string?> DeleteResultsByPlayerIdAsync(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "DELETE FROM Results WHERE PlayerId = $id OR PartnerId = $id;";
+                cmd.Parameters.AddWithValue("$id", playerId);
+                await cmd.ExecuteNonQueryAsync();
                 await tran.CommitAsync();
                 return null;
             }
