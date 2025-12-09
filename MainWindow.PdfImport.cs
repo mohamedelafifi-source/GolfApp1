@@ -1,4 +1,3 @@
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -16,6 +15,7 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using GolfApp1.Services;
 using GolfApp1.Models;
+using WinRT.Interop;
 
 namespace GolfApp1
 {
@@ -58,8 +58,8 @@ namespace GolfApp1
         }
 
         // Preview-only. Extracts Name, Points, Handicap and shows a selectable import UI.
-        // Adds "Club Preview" as the secondary action which groups parsed rows by the
-        // club found in the players DB (matching by normalized name with fuzzy fallback).
+        // First dialog: unsorted parsed lines for confirmation (no per-row import).
+        // Buttons provided: Save (choose folder), Update (persist only known-club results), Club Preview (grouped view), Close.
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -76,10 +76,11 @@ namespace GolfApp1
                     return;
                 }
 
-                // write raw parsed lines to temp file so you can copy/upload them
+                // write raw parsed lines to temp file so you can copy/upload them (temp files preserved)
                 var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
                 Directory.CreateDirectory(tempDir);
                 var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+
                 File.WriteAllLines(rawPath, parsed.Select(p => p.RawLine ?? string.Empty));
 
                 // Core regex: operate on truncated text up to first ')' to ignore trailing "Last Nine Holes" etc.
@@ -170,11 +171,10 @@ namespace GolfApp1
                 // Build preview UI using Grid for fixed columns so Points/Handicap remain visible
                 var panel = new StackPanel { Spacing = 6 };
 
-                // Header: Grid with columns: Import (60), Name (*), Points (80), Handicap (80)
+                // Header: Grid with columns: Name (*), Points (80), Handicap (80)
                 var headerGrid = new Grid
                 {
                     ColumnDefinitions = {
-                        new ColumnDefinition { Width = new GridLength(60) },
                         new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                         new ColumnDefinition { Width = new GridLength(80) },
                         new ColumnDefinition { Width = new GridLength(80) }
@@ -182,28 +182,24 @@ namespace GolfApp1
                     Margin = new Thickness(0, 0, 0, 4)
                 };
 
-                headerGrid.Children.Add(new TextBlock { Text = "Import", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
                 var nameHeader = new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
-                Grid.SetColumn(nameHeader, 1);
+                Grid.SetColumn(nameHeader, 0);
                 headerGrid.Children.Add(nameHeader);
                 var pointsHeader = new TextBlock { Text = "Points", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(pointsHeader, 2);
+                Grid.SetColumn(pointsHeader, 1);
                 headerGrid.Children.Add(pointsHeader);
                 var hcHeader = new TextBlock { Text = "Handicap", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(hcHeader, 3);
+                Grid.SetColumn(hcHeader, 2);
                 headerGrid.Children.Add(hcHeader);
 
                 panel.Children.Add(headerGrid);
 
-                var checkBoxes = new List<CheckBox>();
-
-                // Data rows: use Grid per row to align columns
+                // Data rows: use Grid per row to align columns (no import checkbox)
                 foreach (var e in extractedRows.Take(500))
                 {
                     var rowGrid = new Grid
                     {
                         ColumnDefinitions = {
-                            new ColumnDefinition { Width = new GridLength(60) },
                             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                             new ColumnDefinition { Width = new GridLength(80) },
                             new ColumnDefinition { Width = new GridLength(80) }
@@ -211,28 +207,23 @@ namespace GolfApp1
                         Margin = new Thickness(0, 2, 0, 2)
                     };
 
-                    var cb = new CheckBox { IsChecked = true, HorizontalAlignment = HorizontalAlignment.Left, Tag = e };
-                    checkBoxes.Add(cb);
-                    Grid.SetColumn(cb, 0);
-                    rowGrid.Children.Add(cb);
-
                     var nameTb = new TextBlock { Text = e.Name, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-                    Grid.SetColumn(nameTb, 1);
+                    Grid.SetColumn(nameTb, 0);
                     rowGrid.Children.Add(nameTb);
 
                     var pointsTb = new TextBlock { Text = e.Points, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                    Grid.SetColumn(pointsTb, 2);
+                    Grid.SetColumn(pointsTb, 1);
                     rowGrid.Children.Add(pointsTb);
 
                     var hcText = string.IsNullOrWhiteSpace(e.Handicap) || e.Handicap == "—" ? "—" : (e.Handicap.StartsWith("(") ? e.Handicap : $"({e.Handicap})");
                     var hcTb = new TextBlock { Text = hcText, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                    Grid.SetColumn(hcTb, 3);
+                    Grid.SetColumn(hcTb, 2);
                     rowGrid.Children.Add(hcTb);
 
                     panel.Children.Add(rowGrid);
                 }
 
-                // Place panel inside a ScrollViewer with horizontal auto so columns are visible on narrow windows
+                // Place panel inside a ScrollViewer
                 var scroll = new ScrollViewer
                 {
                     Content = panel,
@@ -241,204 +232,176 @@ namespace GolfApp1
                     MaxHeight = 640
                 };
 
+                // Build dialog content with Save button in content and use ContentDialog buttons for Update/ClubPreview/Close
+                var contentRoot = new StackPanel { Spacing = 8 };
+                // Show header info (file name + count)
+                contentRoot.Children.Add(new TextBlock
+                {
+                    Text = $"Parsed file: {file.Name} — lines: {extractedRows.Count}",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                contentRoot.Children.Add(scroll);
+
+                // In-content Save button (user chooses folder)
+                var inContentBar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 8 };
+                var saveBtn = new Button { Content = "Save", Width = 100 };
+                inContentBar.Children.Add(saveBtn);
+                contentRoot.Children.Add(inContentBar);
+
                 var previewDlg = new ContentDialog
                 {
                     Title = $"PDF Parse Preview — {file.Name}",
-                    Content = scroll,
-                    PrimaryButtonText = "Import Selected",
+                    Content = contentRoot,
+                    PrimaryButtonText = "Update",
                     SecondaryButtonText = "Club Preview",
                     CloseButtonText = "Close",
                     XamlRoot = this.Content?.XamlRoot
                 };
 
+                // Save handler (runs while dialog is open)
+                saveBtn.Click += async (_, _) =>
+                {
+                    try
+                    {
+                        var folderPicker = new FolderPicker();
+                        InitializeWithWindow.Initialize(folderPicker, WindowNative.GetWindowHandle(this));
+                        folderPicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+                        folderPicker.FileTypeFilter.Add("*");
+
+                        var folder = await folderPicker.PickSingleFolderAsync().AsTask();
+                        if (folder == null)
+                        {
+                            UpdateStatus("Save cancelled.");
+                            return;
+                        }
+
+                        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+                        var rawDest = Path.Combine(folder.Path, $"parsed_raw_{stamp}.txt");
+                        var previewDest = Path.Combine(folder.Path, $"parsed_preview_{stamp}.tsv");
+
+                        File.WriteAllLines(rawDest, parsed.Select(p => p.RawLine ?? string.Empty));
+                        File.WriteAllLines(previewDest, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
+                            .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
+
+                        UpdateStatus($"Saved parsed files to: {folder.Path}");
+                        await LocalShowErrorAsync("Save parsed files", $"Saved files to:\n{folder.Path}");
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Save failed: " + ex.Message);
+                        await LocalShowErrorAsync("Save failed", ex.Message);
+                    }
+                };
+
+                // Dialog loop: secondary shows grouped preview and returns to this dialog; primary performs update and exits; close exits.
                 if (this.Content?.XamlRoot == null)
                 {
                     UpdateStatus($"Parsed {parsed.Count} lines (preview unavailable). Files saved to: {tempDir}");
                     return;
                 }
 
-                var result = await previewDlg.ShowAsync();
-
-                if (result == ContentDialogResult.Secondary)
+                bool keepShowing = true;
+                while (keepShowing)
                 {
-                    // Show club-grouped preview
-                    await ShowClubGroupedPreviewAsync(extractedRows);
-                    // after club preview returns, re-open the main preview so user can continue import if desired
-                    await PreviewPdfFileAsync(file);
-                    return;
-                }
+                    var result = await previewDlg.ShowAsync();
 
-                if (result == ContentDialogResult.Primary)
-                {
-                    if (_db is null)
+                    if (result == ContentDialogResult.Primary)
                     {
-                        UpdateStatus("Database not initialized.");
-                        await LocalShowErrorAsync("Import failed", "Database not initialized.");
-                        return;
-                    }
-
-                    var importDate = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date;
-                    var importClub = ResultsClubCombo?.SelectedItem?.ToString() ?? string.Empty;
-                    var importVenue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
-
-                    int imported = 0, failed = 0;
-                    var errors = new List<string>();
-
-                    // prepare VM player lookup with normalized names
-                    Dictionary<string, Player> normalizedPlayers = null;
-                    if (_vm is not null)
-                    {
-                        normalizedPlayers = _vm.Players
-                            .Where(pl => !string.IsNullOrWhiteSpace(pl.Name))
-                            .ToDictionary(pl => NormalizeName(pl.Name), pl => pl, StringComparer.OrdinalIgnoreCase);
-                    }
-
-                    foreach (var cb in checkBoxes)
-                    {
-                        if (cb.IsChecked != true) continue;
-                        var tag = ((string? Name, string Points, string Handicap, string Raw, int Position))cb.Tag;
-                        try
+                        // Update logic (persist known-club results)
+                        if (_db is null)
                         {
-                            int.TryParse(tag.Handicap, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var hParsed);
-                            int.TryParse(tag.Points, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sParsed);
+                            UpdateStatus("Database not initialized.");
+                            await LocalShowErrorAsync("Update failed", "Database not initialized.");
+                            return;
+                        }
 
-                            var rec = new ResultRecord
-                            {
-                                Id = Guid.NewGuid().ToString(),
-                                Date = importDate,
-                                Club = importClub,
-                                Venue = importVenue,
-                                PlayerName = tag.Name ?? string.Empty,
-                                Partner = string.Empty,
-                                Hcp = hParsed,
-                                Result = sParsed,
-                                Position = tag.Position
-                            };
+                        UpdateStatus("Updating results for known clubs...");
 
-                            // Try to resolve PlayerId from VM using normalized name, then fuzzy NameSimilarity/metrics
-                            if (normalizedPlayers != null)
+                        // build name->club map (exact normalized name)
+                        var clubs = await _db.GetAllClubsAsync();
+                        var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var c in clubs)
+                        {
+                            var players = await _db.GetPlayersByClubAsync(c.ShortName);
+                            foreach (var pl in players)
                             {
-                                var n = NormalizeName(rec.PlayerName);
-                                if (normalizedPlayers.TryGetValue(n, out var playerExact))
+                                var key = NormalizeName(pl.Name ?? string.Empty);
+                                if (!string.IsNullOrWhiteSpace(key) && !nameToClub.ContainsKey(key))
+                                    nameToClub[key] = c.ShortName;
+                            }
+                        }
+
+                        int stored = 0, skipped = 0, failures = 0;
+                        var errors = new List<string>();
+
+                        foreach (var r in extractedRows)
+                        {
+                            var normalized = NormalizeName(r.Name ?? string.Empty);
+                            if (!nameToClub.TryGetValue(normalized, out var clubShort))
+                            {
+                                skipped++;
+                                continue;
+                            }
+
+                            try
+                            {
+                                var rec = new ResultRecord
                                 {
-                                    rec.PlayerId = playerExact.Id;
+                                    Id = Guid.NewGuid().ToString(),
+                                    Date = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date,
+                                    Club = clubShort,
+                                    Venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty,
+                                    PlayerName = r.Name ?? string.Empty,
+                                    Partner = string.Empty,
+                                    Hcp = int.TryParse(r.Handicap.Replace("(", "").Replace(")", ""), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var h) ? h : 0,
+                                    Result = int.TryParse(r.Points, NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) ? s : 0,
+                                    Position = r.Position
+                                };
+
+                                var err = await _db.UpsertResultAsync(rec);
+                                if (err != null)
+                                {
+                                    failures++;
+                                    errors.Add($"{rec.PlayerName}: {err}");
                                 }
                                 else
                                 {
-                                    // Use token-aware metrics and stricter acceptance rules to avoid false matches
-                                    double best = 0.0;
-                                    string? bestKey = null;
-                                    (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                                    const double Threshold = 0.95; // stricter overall acceptance
-                                    const double MinFirstSim = 0.70; // require stronger first-name similarity
-                                    const double MinLastExact = 0.995; // near-exact last-name only
-                                    const double MinFirstWhenLastExact = 0.65; // still require decent first-name sim
-
-                                    foreach (var key in normalizedPlayers.Keys)
-                                    {
-                                        var metrics = ComputeNameMetrics(n, key);
-                                        if (metrics.combined > best)
-                                        {
-                                            best = metrics.combined;
-                                            bestKey = key;
-                                            bestMetrics = metrics;
-                                        }
-                                    }
-
-                                    if (!string.IsNullOrEmpty(bestKey))
-                                    {
-                                        // Accept only if combined is very high AND first-name close,
-                                        // or if last-name is essentially exact and first-name reasonably close.
-                                        if ((bestMetrics.combined >= Threshold && bestMetrics.firstSim >= MinFirstSim) ||
-                                            (bestMetrics.lastSim >= MinLastExact && bestMetrics.firstSim >= MinFirstWhenLastExact))
-                                        {
-                                            rec.PlayerId = normalizedPlayers[bestKey].Id;
-                                        }
-                                    }
+                                    stored++;
                                 }
-                            }
-
-                            var err = await _db.UpsertResultAsync(rec);
-                            if (err != null)
-                            {
-                                failed++;
-                                errors.Add($"{rec.PlayerName}: {err}");
-                            }
-                            else
-                            {
-                                imported++;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            failed++;
-                            errors.Add($"Import error: {ex.Message}");
-                        }
-                    }
-
-                    var summary = $"Import finished. Imported: {imported}. Failed: {failed}.";
-                    UpdateStatus(summary);
-                    if (failed > 0)
-                    {
-                        var details = string.Join("\n", errors.Take(50));
-                        await LocalShowErrorAsync("Import completed with errors", summary + "\n\n" + details);
-                    }
-                    else
-                    {
-                        await LocalShowErrorAsync("Import complete", summary);
-                    }
-                }
-                else
-                {
-                    //The following line shows too much data in the status bar
-                    //UpdateStatus($"Preview cancelled. Files: {rawPath}, {previewPath}");
-                    UpdateStatus($"Preview cancelled");
-                }
-
-                // -----------------------------------------------------------------------
-                // Offer to create permanent copies of the temporary parsed files
-                // (user requested these not be deleted; temp files remain in tempDir)
-                // -----------------------------------------------------------------------
-                try
-                {
-                    if (!string.IsNullOrEmpty(tempDir) && File.Exists(previewPath) && File.Exists(rawPath) && this.Content?.XamlRoot != null)
-                    {
-                        var saveDlg = new ContentDialog
-                        {
-                            Title = "Save parsed files?",
-                            Content = $"Temporary parsed files were written to:\n{tempDir}\n\nWould you like to save permanent copies to your application data folder for later use?",
-                            PrimaryButtonText = "Save",
-                            CloseButtonText = "Don't save",
-                            XamlRoot = this.Content?.XamlRoot
-                        };
-
-                        var saveRes = await saveDlg.ShowAsync();
-                        if (saveRes == ContentDialogResult.Primary)
-                        {
-                            try
-                            {
-                                var destRoot = Path.Combine(AppStorage.GetDataFolder(), "ParsedExports");
-                                Directory.CreateDirectory(destRoot);
-
-                                var rawDest = Path.Combine(destRoot, Path.GetFileName(rawPath));
-                                var previewDest = Path.Combine(destRoot, Path.GetFileName(previewPath));
-
-                                File.Copy(rawPath, rawDest, overwrite: true);
-                                File.Copy(previewPath, previewDest, overwrite: true);
-
-                                UpdateStatus($"Saved parsed files to: {destRoot}");
                             }
                             catch (Exception ex)
                             {
-                                UpdateStatus("Failed to save parsed files: " + ex.Message);
-                                await LocalShowErrorAsync("Save parsed files failed", ex.Message);
+                                failures++;
+                                errors.Add($"{r.Name}: {ex.Message}");
                             }
                         }
+
+                        var summary = $"Update finished. Stored: {stored}. Skipped (unknown club): {skipped}. Failures: {failures}.";
+                        UpdateStatus(summary);
+                        if (errors.Count > 0)
+                        {
+                            var details = string.Join("\n", errors.Take(50));
+                            await LocalShowErrorAsync("Update completed with errors", summary + "\n\n" + details);
+                        }
+                        else
+                        {
+                            await LocalShowErrorAsync("Update complete", summary);
+                        }
+
+                        keepShowing = false; // exit dialog loop
                     }
-                }
-                catch
-                {
-                    // non-fatal — leave temp files in place
+                    else if (result == ContentDialogResult.Secondary)
+                    {
+                        // Show grouped club preview then loop to re-show initial preview
+                        await ShowClubGroupedPreviewAsync(extractedRows);
+                        // loop continues to re-show preview dialog
+                    }
+                    else
+                    {
+                        // Close pressed
+                        keepShowing = false;
+                    }
                 }
             }
             catch (Exception ex)
@@ -448,6 +411,7 @@ namespace GolfApp1
             }
         }
 
+        // ShowClubGroupedPreviewAsync unchanged (keeps grouping UI)
         private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -588,11 +552,11 @@ namespace GolfApp1
                 }
             }
 
-            var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
+            var scroll2 = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
             var dlg = new ContentDialog
             {
                 Title = "Club Results Preview (grouped)",
-                Content = scroll,
+                Content = scroll2,
                 CloseButtonText = "Close",
                 XamlRoot = this.Content?.XamlRoot
             };
@@ -680,9 +644,7 @@ namespace GolfApp1
                 var firstSim = JaroWinkler(firstA, firstB);
 
                 // This weight distribution favors last name more heavily
-                // slightly more weight to surname now
-                //===============================================================
-                var combined = (0.75 * lastSim) + (0.25 * firstSim); // slightly more weight to surname now
+                var combined = (0.75 * lastSim) + (0.25 * firstSim);
 
                 // If exact multi-token last-name match (including particle) boost high
                 if (string.Equals(lastA, lastB, StringComparison.OrdinalIgnoreCase)) combined = Math.Max(combined, 0.995);
