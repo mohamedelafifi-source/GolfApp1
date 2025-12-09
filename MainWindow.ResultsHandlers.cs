@@ -1,5 +1,5 @@
 // MainWindow.ResultsHandlers.cs
-// Handlers for Results menu and Enter Results header
+
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -112,7 +112,7 @@ namespace GolfApp1
             UpdateProceedButtonState();
         }
 
-        // Helper: enable Proceed only when date, club and venue are set.
+        // Helper: enable Proceed and Import PDF only when date, club and venue are set.
         private void UpdateProceedButtonState()
         {
             try
@@ -121,11 +121,15 @@ namespace GolfApp1
                 var clubOk = ResultsClubCombo is not null && ResultsClubCombo.SelectedItem != null;
                 var venueOk = ResultsVenueCombo is not null && ResultsVenueCombo.SelectedItem != null;
 
-                if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = dateOk && clubOk && venueOk;
+                var enabled = dateOk && clubOk && venueOk;
+
+                if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = enabled;
+                if (ImportPdfButton is not null) ImportPdfButton.IsEnabled = enabled;
             }
             catch
             {
                 if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = false;
+                if (ImportPdfButton is not null) ImportPdfButton.IsEnabled = false;
             }
         }
 
@@ -163,6 +167,7 @@ namespace GolfApp1
 
                 // Disable proceed until header is filled next time
                 if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = false;
+                if (ImportPdfButton is not null) ImportPdfButton.IsEnabled = false;
 
                 UpdateStatus("Returned to main menu.");
             }
@@ -171,7 +176,7 @@ namespace GolfApp1
                 UpdateStatus("Error closing results UI: " + ex.Message);
             }
         }
-        
+
     }
 
 }
