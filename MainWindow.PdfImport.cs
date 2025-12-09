@@ -57,9 +57,8 @@ namespace GolfApp1
             }
         }
 
-        // Preview-only. Extracts Name, Points, Handicap and shows a selectable import UI.
-        // First dialog: unsorted parsed lines for confirmation (no per-row import).
-        // Buttons provided: Save (choose folder), Update (persist only known-club results), Club Preview (grouped view), Close.
+        // Step 1: show unsorted parsed lines for confirmation.
+        // Dialog buttons: Primary = "Preview" (go to grouped preview), Close = "Exit".
         private async Task PreviewPdfFileAsync(StorageFile file)
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
@@ -76,21 +75,18 @@ namespace GolfApp1
                     return;
                 }
 
-                // write raw parsed lines to temp file so you can copy/upload them (temp files preserved)
+                // temp storage for raw & preview files
                 var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
                 Directory.CreateDirectory(tempDir);
                 var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-
                 File.WriteAllLines(rawPath, parsed.Select(p => p.RawLine ?? string.Empty));
 
-                // Core regex: operate on truncated text up to first ')' to ignore trailing "Last Nine Holes" etc.
+                // parsing regexes and extraction
                 var truncatedEntryRx = new Regex(
                     @"^\s*(?:\d+\s+)?(?<name>.+?)\s+(?<points>-?\d+|WD|DQ|DNS)(?:\s*pts?)?\s*\(\s*(?<hc>[+-]?\d{1,2}(?:\.\d)?)\s*\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
                 var parAny = new Regex(@"\((?<inside>[^)]*)\)", RegexOptions.Compiled);
 
-                // NOTE: Name is nullable so this collection can be passed directly to ShowClubGroupedPreviewAsync
                 var extractedRows = new List<(string? Name, string Points, string Handicap, string Raw, int Position)>();
 
                 foreach (var p in parsed)
@@ -154,7 +150,7 @@ namespace GolfApp1
                     extractedRows.Add((fallbackName, fallbackPoints, fallbackHc, raw, posFallback));
                 }
 
-                // write extracted preview lines to temp file (tab-separated) for sharing
+                // write preview temp file
                 var previewPath = Path.Combine(tempDir, $"parsed_preview_{DateTime.Now:yyyyMMdd_HHmmss}.tsv");
                 File.WriteAllLines(previewPath, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
                     .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
@@ -168,10 +164,9 @@ namespace GolfApp1
                     catch { /* ignore */ }
                 }
 
-                // Build preview UI using Grid for fixed columns so Points/Handicap remain visible
+                // Build confirmation UI (unsorted parsed lines)
                 var panel = new StackPanel { Spacing = 6 };
 
-                // Header: Grid with columns: Name (*), Points (80), Handicap (80)
                 var headerGrid = new Grid
                 {
                     ColumnDefinitions = {
@@ -194,7 +189,6 @@ namespace GolfApp1
 
                 panel.Children.Add(headerGrid);
 
-                // Data rows: use Grid per row to align columns (no import checkbox)
                 foreach (var e in extractedRows.Take(500))
                 {
                     var rowGrid = new Grid
@@ -223,7 +217,6 @@ namespace GolfApp1
                     panel.Children.Add(rowGrid);
                 }
 
-                // Place panel inside a ScrollViewer
                 var scroll = new ScrollViewer
                 {
                     Content = panel,
@@ -232,9 +225,7 @@ namespace GolfApp1
                     MaxHeight = 640
                 };
 
-                // Build dialog content with Save button in content and use ContentDialog buttons for Update/ClubPreview/Close
                 var contentRoot = new StackPanel { Spacing = 8 };
-                // Show header info (file name + count)
                 contentRoot.Children.Add(new TextBlock
                 {
                     Text = $"Parsed file: {file.Name} — lines: {extractedRows.Count}",
@@ -243,165 +234,31 @@ namespace GolfApp1
                 });
                 contentRoot.Children.Add(scroll);
 
-                // In-content Save button (user chooses folder)
-                var inContentBar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Spacing = 8 };
-                var saveBtn = new Button { Content = "Save", Width = 100 };
-                inContentBar.Children.Add(saveBtn);
-                contentRoot.Children.Add(inContentBar);
-
-                var previewDlg = new ContentDialog
+                var confirmDlg = new ContentDialog
                 {
-                    Title = $"PDF Parse Preview — {file.Name}",
+                    Title = $"PDF Parse — Confirm: {file.Name}",
                     Content = contentRoot,
-                    PrimaryButtonText = "Update",
-                    SecondaryButtonText = "Club Preview",
-                    CloseButtonText = "Close",
+                    PrimaryButtonText = "Preview",
+                    CloseButtonText = "Exit",
                     XamlRoot = this.Content?.XamlRoot
                 };
 
-                // Save handler (runs while dialog is open)
-                saveBtn.Click += async (_, _) =>
-                {
-                    try
-                    {
-                        var folderPicker = new FolderPicker();
-                        InitializeWithWindow.Initialize(folderPicker, WindowNative.GetWindowHandle(this));
-                        folderPicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-                        folderPicker.FileTypeFilter.Add("*");
-
-                        var folder = await folderPicker.PickSingleFolderAsync().AsTask();
-                        if (folder == null)
-                        {
-                            UpdateStatus("Save cancelled.");
-                            return;
-                        }
-
-                        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-                        var rawDest = Path.Combine(folder.Path, $"parsed_raw_{stamp}.txt");
-                        var previewDest = Path.Combine(folder.Path, $"parsed_preview_{stamp}.tsv");
-
-                        File.WriteAllLines(rawDest, parsed.Select(p => p.RawLine ?? string.Empty));
-                        File.WriteAllLines(previewDest, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
-                            .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
-
-                        UpdateStatus($"Saved parsed files to: {folder.Path}");
-                        await LocalShowErrorAsync("Save parsed files", $"Saved files to:\n{folder.Path}");
-                    }
-                    catch (Exception ex)
-                    {
-                        UpdateStatus("Save failed: " + ex.Message);
-                        await LocalShowErrorAsync("Save failed", ex.Message);
-                    }
-                };
-
-                // Dialog loop: secondary shows grouped preview and returns to this dialog; primary performs update and exits; close exits.
                 if (this.Content?.XamlRoot == null)
                 {
                     UpdateStatus($"Parsed {parsed.Count} lines (preview unavailable). Files saved to: {tempDir}");
                     return;
                 }
 
-                bool keepShowing = true;
-                while (keepShowing)
+                var confirmResult = await confirmDlg.ShowAsync();
+
+                if (confirmResult == ContentDialogResult.Primary)
                 {
-                    var result = await previewDlg.ShowAsync();
-
-                    if (result == ContentDialogResult.Primary)
-                    {
-                        // Update logic (persist known-club results)
-                        if (_db is null)
-                        {
-                            UpdateStatus("Database not initialized.");
-                            await LocalShowErrorAsync("Update failed", "Database not initialized.");
-                            return;
-                        }
-
-                        UpdateStatus("Updating results for known clubs...");
-
-                        // build name->club map (exact normalized name)
-                        var clubs = await _db.GetAllClubsAsync();
-                        var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var c in clubs)
-                        {
-                            var players = await _db.GetPlayersByClubAsync(c.ShortName);
-                            foreach (var pl in players)
-                            {
-                                var key = NormalizeName(pl.Name ?? string.Empty);
-                                if (!string.IsNullOrWhiteSpace(key) && !nameToClub.ContainsKey(key))
-                                    nameToClub[key] = c.ShortName;
-                            }
-                        }
-
-                        int stored = 0, skipped = 0, failures = 0;
-                        var errors = new List<string>();
-
-                        foreach (var r in extractedRows)
-                        {
-                            var normalized = NormalizeName(r.Name ?? string.Empty);
-                            if (!nameToClub.TryGetValue(normalized, out var clubShort))
-                            {
-                                skipped++;
-                                continue;
-                            }
-
-                            try
-                            {
-                                var rec = new ResultRecord
-                                {
-                                    Id = Guid.NewGuid().ToString(),
-                                    Date = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date,
-                                    Club = clubShort,
-                                    Venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty,
-                                    PlayerName = r.Name ?? string.Empty,
-                                    Partner = string.Empty,
-                                    Hcp = int.TryParse(r.Handicap.Replace("(", "").Replace(")", ""), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var h) ? h : 0,
-                                    Result = int.TryParse(r.Points, NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) ? s : 0,
-                                    Position = r.Position
-                                };
-
-                                var err = await _db.UpsertResultAsync(rec);
-                                if (err != null)
-                                {
-                                    failures++;
-                                    errors.Add($"{rec.PlayerName}: {err}");
-                                }
-                                else
-                                {
-                                    stored++;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                failures++;
-                                errors.Add($"{r.Name}: {ex.Message}");
-                            }
-                        }
-
-                        var summary = $"Update finished. Stored: {stored}. Skipped (unknown club): {skipped}. Failures: {failures}.";
-                        UpdateStatus(summary);
-                        if (errors.Count > 0)
-                        {
-                            var details = string.Join("\n", errors.Take(50));
-                            await LocalShowErrorAsync("Update completed with errors", summary + "\n\n" + details);
-                        }
-                        else
-                        {
-                            await LocalShowErrorAsync("Update complete", summary);
-                        }
-
-                        keepShowing = false; // exit dialog loop
-                    }
-                    else if (result == ContentDialogResult.Secondary)
-                    {
-                        // Show grouped club preview then loop to re-show initial preview
-                        await ShowClubGroupedPreviewAsync(extractedRows);
-                        // loop continues to re-show preview dialog
-                    }
-                    else
-                    {
-                        // Close pressed
-                        keepShowing = false;
-                    }
+                    // go to grouped preview that has Save/Update/Close
+                    await ShowClubGroupedPreviewWithActionsAsync(extractedRows);
+                }
+                else
+                {
+                    UpdateStatus("Preview cancelled");
                 }
             }
             catch (Exception ex)
@@ -411,8 +268,9 @@ namespace GolfApp1
             }
         }
 
-        // ShowClubGroupedPreviewAsync unchanged (keeps grouping UI)
-        private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
+        // Step 2: grouped preview with dialog chrome actions:
+        // Primary = Update (placeholder), Secondary = Save (choose folder), Close = Exit.
+        private async Task ShowClubGroupedPreviewWithActionsAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
             {
@@ -421,7 +279,7 @@ namespace GolfApp1
                 return;
             }
 
-            // Build a lookup of player normalized name -> club short name by iterating clubs and players
+            // Build name->club map
             var clubs = await _db.GetAllClubsAsync();
             var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var clubLookup = clubs.ToDictionary(c => c.ShortName, c => c);
@@ -440,9 +298,242 @@ namespace GolfApp1
             }
 
             // Group parsed results by discovered club (or "Unknown")
-            var grouped = new Dictionary<string, List<(string Name, string Points, string Handicap, int Position)>>();
-
+            var grouped = new Dictionary<string, List<(string Name, string Points, string Handicap, int Position, string Raw)>>();
             string unknownKey = "__UNKNOWN__";
+
+            foreach (var r in extractedRows)
+            {
+                var normalized = NormalizeName(r.Name ?? string.Empty);
+
+                if (nameToClub.TryGetValue(normalized, out var clubShort))
+                {
+                    if (!grouped.ContainsKey(clubShort)) grouped[clubShort] = new List<(string, string, string, int, string)>();
+                    grouped[clubShort].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position, r.Raw));
+                    continue;
+                }
+
+                // Fuzzy fallback
+                double best = 0.0;
+                string? bestKey = null;
+                (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
+                const double GroupThreshold = 0.95;
+                const double GroupMinFirstSim = 0.70;
+                const double GroupMinLastExact = 0.995;
+                const double GroupMinFirstWhenLastExact = 0.65;
+
+                foreach (var key in nameToClub.Keys)
+                {
+                    var metrics = ComputeNameMetrics(normalized, key);
+                    if (metrics.combined > best)
+                    {
+                        best = metrics.combined;
+                        bestKey = key;
+                        bestMetrics = metrics;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(bestKey) &&
+                    ((bestMetrics.combined >= GroupThreshold && bestMetrics.firstSim >= GroupMinFirstSim) ||
+                     (bestMetrics.lastSim >= GroupMinLastExact && bestMetrics.firstSim >= GroupMinFirstWhenLastExact)))
+                {
+                    var matchedClub = nameToClub[bestKey];
+                    if (!grouped.ContainsKey(matchedClub)) grouped[matchedClub] = new List<(string, string, string, int, string)>();
+                    grouped[matchedClub].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position, r.Raw));
+                }
+                else
+                {
+                    if (!grouped.ContainsKey(unknownKey)) grouped[unknownKey] = new List<(string, string, string, int, string)>();
+                    grouped[unknownKey].Add((r.Name ?? string.Empty, r.Points, r.Handicap, r.Position, r.Raw));
+                }
+            }
+
+            if (grouped.Count == 0)
+            {
+                await LocalShowErrorAsync("Club Preview", "No players matched clubs in the database.");
+                return;
+            }
+
+            // Build grouped UI content
+            var panel = new StackPanel { Spacing = 10 };
+            foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
+            {
+                string clubShort = kv.Key;
+                string clubDisplay = clubShort == unknownKey ? "Unknown Club" : (clubLookup.TryGetValue(clubShort, out var c) ? $"{c.LongName} ({c.ShortName})" : clubShort);
+
+                panel.Children.Add(new TextBlock
+                {
+                    Text = clubDisplay,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                var headerRow = new Grid
+                {
+                    ColumnDefinitions = {
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        new ColumnDefinition { Width = new GridLength(80) },
+                        new ColumnDefinition { Width = new GridLength(80) }
+                    },
+                    Margin = new Thickness(0, 4, 0, 2)
+                };
+                headerRow.Children.Add(new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                var ph = new TextBlock { Text = "Points", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
+                Grid.SetColumn(ph, 1);
+                headerRow.Children.Add(ph);
+                var hh = new TextBlock { Text = "Handicap", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
+                Grid.SetColumn(hh, 2);
+                headerRow.Children.Add(hh);
+                panel.Children.Add(headerRow);
+
+                foreach (var row in kv.Value.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var r = new Grid
+                    {
+                        ColumnDefinitions = {
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                            new ColumnDefinition { Width = new GridLength(80) },
+                            new ColumnDefinition { Width = new GridLength(80) }
+                        },
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+                    r.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
+                    var pt = new TextBlock { Text = row.Points, TextAlignment = TextAlignment.Center };
+                    Grid.SetColumn(pt, 1);
+                    r.Children.Add(pt);
+                    var hcText = string.IsNullOrWhiteSpace(row.Handicap) || row.Handicap == "—" ? "—" : (row.Handicap.StartsWith("(") ? row.Handicap : $"({row.Handicap})");
+                    var hct = new TextBlock { Text = hcText, TextAlignment = TextAlignment.Center };
+                    Grid.SetColumn(hct, 2);
+                    r.Children.Add(hct);
+                    panel.Children.Add(r);
+                }
+            }
+
+            var scroll2 = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 };
+
+            // Dialog with actions: Update (primary), Save (secondary), Close (close)
+            var dlgContent = new StackPanel { Spacing = 8 };
+            dlgContent.Children.Add(new TextBlock
+            {
+                Text = "Grouped by Club",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            dlgContent.Children.Add(scroll2);
+
+            var previewDlg = new ContentDialog
+            {
+                Title = "Club Results Preview (grouped)",
+                Content = dlgContent,
+                PrimaryButtonText = "Update",
+                SecondaryButtonText = "Save",
+                CloseButtonText = "Exit",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            if (this.Content?.XamlRoot == null)
+            {
+                UpdateStatus("Club preview created (UI unavailable).");
+                return;
+            }
+
+            bool keepShowing = true;
+            while (keepShowing)
+            {
+                var result = await previewDlg.ShowAsync();
+
+                if (result == ContentDialogResult.Primary)
+                {
+                    // Placeholder for Update
+                    UpdateStatus("Update invoked (not implemented).");
+                    await LocalShowErrorAsync("Update", "Update action not implemented yet. Placeholder only.");
+                    keepShowing = false;
+                }
+                else if (result == ContentDialogResult.Secondary)
+                {
+                    // Save TSV including Club column
+                    try
+                    {
+                        var folderPicker = new FolderPicker();
+                        InitializeWithWindow.Initialize(folderPicker, WindowNative.GetWindowHandle(this));
+                        folderPicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+                        folderPicker.FileTypeFilter.Add("*");
+
+                        var folder = await folderPicker.PickSingleFolderAsync().AsTask();
+                        if (folder == null)
+                        {
+                            UpdateStatus("Save cancelled.");
+                            continue;
+                        }
+
+                        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+                        var previewDest = Path.Combine(folder.Path, $"club_parsed_preview_{stamp}.tsv");
+
+                        var lines = new List<string> { "Club\tName\tPoints\tHandicap\tPosition\tRawLine" };
+                        foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
+                        {
+                            string clubShort = kv.Key;
+                            string clubDisplay = clubShort == unknownKey ? "Unknown Club" : (clubLookup.TryGetValue(clubShort, out var c) ? $"{c.LongName} ({c.ShortName})" : clubShort);
+
+                            foreach (var row in kv.Value)
+                            {
+                                var name = row.Name?.Replace('\t', ' ') ?? string.Empty;
+                                var points = row.Points?.Replace('\t', ' ') ?? string.Empty;
+                                var hc = row.Handicap?.Replace('\t', ' ') ?? string.Empty;
+                                var position = row.Position.ToString(CultureInfo.InvariantCulture);
+                                var raw = row.Raw?.Replace('\t', ' ') ?? string.Empty;
+                                lines.Add($"{clubDisplay}\t{name}\t{points}\t{hc}\t{position}\t{raw}");
+                            }
+                        }
+
+                        File.WriteAllLines(previewDest, lines, Encoding.UTF8);
+
+                        UpdateStatus($"Saved grouped preview to: {folder.Path}");
+                        await LocalShowErrorAsync("Save parsed files", $"Saved grouped preview to:\n{previewDest}");
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Save failed: " + ex.Message);
+                        await LocalShowErrorAsync("Save failed", ex.Message);
+                    }
+                }
+                else
+                {
+                    // Exit
+                    keepShowing = false;
+                }
+            }
+        }
+
+        // Original grouped preview kept for compatibility (close-only dialog)
+        private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
+        {
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await LocalShowErrorAsync("Club Preview", "Database not initialized.");
+                return;
+            }
+
+            var clubs = await _db.GetAllClubsAsync();
+            var nameToClub = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var clubLookup = clubs.ToDictionary(c => c.ShortName, c => c);
+
+            foreach (var club in clubs)
+            {
+                var players = await _db.GetPlayersByClubAsync(club.ShortName);
+                foreach (var pl in players)
+                {
+                    var key = NormalizeName(pl.Name ?? string.Empty);
+                    if (!string.IsNullOrWhiteSpace(key) && !nameToClub.ContainsKey(key))
+                    {
+                        nameToClub[key] = club.ShortName;
+                    }
+                }
+            }
+
+            var grouped = new Dictionary<string, List<(string Name, string Points, string Handicap, int Position)>>();
+            string unknownKey = "__UNKNOWN__";
+
             foreach (var r in extractedRows)
             {
                 var normalized = NormalizeName(r.Name ?? string.Empty);
@@ -454,7 +545,6 @@ namespace GolfApp1
                     continue;
                 }
 
-                // Fuzzy fallback using token-aware metrics
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
@@ -495,14 +585,12 @@ namespace GolfApp1
                 return;
             }
 
-            // Build UI: for each club show header and sorted rows by player name
             var panel = new StackPanel { Spacing = 10 };
             foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
             {
                 string clubShort = kv.Key;
                 string clubDisplay = clubShort == unknownKey ? "Unknown Club" : (clubLookup.TryGetValue(clubShort, out var c) ? $"{c.LongName} ({c.ShortName})" : clubShort);
 
-                // club header
                 panel.Children.Add(new TextBlock
                 {
                     Text = clubDisplay,
@@ -510,14 +598,13 @@ namespace GolfApp1
                     TextWrapping = TextWrapping.Wrap
                 });
 
-                // header row (Grid to align columns)
                 var headerRow = new Grid
                 {
                     ColumnDefinitions = {
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = new GridLength(80) },
-                new ColumnDefinition { Width = new GridLength(80) }
-            },
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        new ColumnDefinition { Width = new GridLength(80) },
+                        new ColumnDefinition { Width = new GridLength(80) }
+                    },
                     Margin = new Thickness(0, 4, 0, 2)
                 };
                 headerRow.Children.Add(new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -534,10 +621,10 @@ namespace GolfApp1
                     var r = new Grid
                     {
                         ColumnDefinitions = {
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                    new ColumnDefinition { Width = new GridLength(80) },
-                    new ColumnDefinition { Width = new GridLength(80) }
-                         },
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                            new ColumnDefinition { Width = new GridLength(80) },
+                            new ColumnDefinition { Width = new GridLength(80) }
+                        },
                         Margin = new Thickness(0, 2, 0, 2)
                     };
                     r.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
@@ -571,7 +658,6 @@ namespace GolfApp1
         }
 
         // Local UI helper used inside this file to avoid cross-file symbol issues during incremental edits.
-        // This duplicates behavior of the shared ShowErrorAsync but is scoped to PdfImport.cs only.
         private async Task LocalShowErrorAsync(string title, string message)
         {
             UpdateStatus(message);
@@ -580,7 +666,6 @@ namespace GolfApp1
         }
 
         //Trim names and be case insensitive
-        // Remove diacritics and normalize spacing/casing
         private static string NormalizeName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return string.Empty;
@@ -606,8 +691,6 @@ namespace GolfApp1
             return sb.ToString().Normalize(NormalizationForm.FormC);
         }
 
-        // Compute combined/first/last metrics for two normalized names.
-        // Returns (combined, firstSim, lastSim). Callers may apply thresholds.
         private static (double combined, double firstSim, double lastSim) ComputeNameMetrics(string a, string b)
         {
             if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return (0.0, 0.0, 0.0);
@@ -621,7 +704,6 @@ namespace GolfApp1
             var tokensA = a.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             var tokensB = b.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            // common surname particles to treat as part of last name (e.g. "el mahdy")
             var particles = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "el", "al", "abu", "bin", "ibn", "de", "van", "von", "le", "la" };
 
             if (tokensA.Length > 1 && tokensB.Length > 1)
@@ -643,10 +725,8 @@ namespace GolfApp1
                 var lastSim = JaroWinkler(lastA, lastB);
                 var firstSim = JaroWinkler(firstA, firstB);
 
-                // This weight distribution favors last name more heavily
                 var combined = (0.75 * lastSim) + (0.25 * firstSim);
 
-                // If exact multi-token last-name match (including particle) boost high
                 if (string.Equals(lastA, lastB, StringComparison.OrdinalIgnoreCase)) combined = Math.Max(combined, 0.995);
 
                 return (combined, firstSim, lastSim);
@@ -656,7 +736,6 @@ namespace GolfApp1
             return (full, full, full);
         }
 
-        // Jaro-Winkler similarity (standard implementation)
         private static double JaroWinkler(string s1, string s2)
         {
             if (string.IsNullOrEmpty(s1)) return string.IsNullOrEmpty(s2) ? 1.0 : 0.0;
