@@ -451,7 +451,7 @@ namespace GolfApp1
                 }
                 else if (result == ContentDialogResult.Secondary)
                 {
-                    // Save CSV including Date and Venue (no Raw line)
+                    // Save CSV including Date and Venue (no Position column)
                     try
                     {
                         var folderPicker = new FolderPicker();
@@ -475,8 +475,8 @@ namespace GolfApp1
                         var venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
 
                         var lines = new List<string>();
-                        // Header
-                        lines.Add("Date,Venue,Club,Name,Points,Handicap,Position");
+                        // Header (Position column removed)
+                        lines.Add("Date,Venue,Club,Name,Points,Handicap");
 
                         foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
                         {
@@ -488,10 +488,9 @@ namespace GolfApp1
                                 var name = CsvEscape(row.Name ?? string.Empty);
                                 var points = CsvEscape(row.Points ?? string.Empty);
                                 var hc = CsvEscape(row.Handicap ?? string.Empty);
-                                var position = row.Position.ToString(CultureInfo.InvariantCulture);
                                 var club = CsvEscape(clubDisplay);
                                 // Date and Venue same for all rows (from UI)
-                                lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{name},{points},{hc},{position}");
+                                lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{name},{points},{hc}");
                             }
                         }
 
