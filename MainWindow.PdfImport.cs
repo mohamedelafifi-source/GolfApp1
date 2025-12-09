@@ -14,6 +14,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using GolfApp1.Services;
 using GolfApp1.Models;
 using WinRT.Interop;
@@ -270,7 +274,7 @@ namespace GolfApp1
         }
 
         // Step 2: grouped preview with dialog chrome actions:
-        // Primary = Update (placeholder), Secondary = Save (choose folder), Close = Exit.
+        // Primary = Update (placeholder), Secondary = Save (choose file name & folder), Close = Exit.
         private async Task ShowClubGroupedPreviewWithActionsAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -451,23 +455,10 @@ namespace GolfApp1
                 }
                 else if (result == ContentDialogResult.Secondary)
                 {
-                    // Save CSV including Date and Venue (no Position column)
+                    // Save CSV including Date and Venue (user picks filename + folder)
                     try
                     {
-                        var folderPicker = new FolderPicker();
-                        InitializeWithWindow.Initialize(folderPicker, WindowNative.GetWindowHandle(this));
-                        folderPicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-                        folderPicker.FileTypeFilter.Add("*");
-
-                        var folder = await folderPicker.PickSingleFolderAsync().AsTask();
-                        if (folder == null)
-                        {
-                            UpdateStatus("Save cancelled.");
-                            continue;
-                        }
-
                         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-                        var previewDest = Path.Combine(folder.Path, $"club_parsed_preview_{stamp}.csv");
 
                         // Date and Venue from UI (fallbacks)
                         var dateValue = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date;
@@ -494,10 +485,29 @@ namespace GolfApp1
                             }
                         }
 
-                        File.WriteAllLines(previewDest, lines, Encoding.UTF8);
+                        // FileSavePicker to allow user choose filename + folder
+                        var savePicker = new FileSavePicker();
+                        InitializeWithWindow.Initialize(savePicker, WindowNative.GetWindowHandle(this));
+                        savePicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+                        savePicker.FileTypeChoices.Add("CSV", new List<string> { ".csv" });
+                        savePicker.SuggestedFileName = $"club_parsed_preview_{stamp}";
 
-                        UpdateStatus($"Saved grouped preview to: {folder.Path}");
-                        await LocalShowErrorAsync("Save parsed files", $"Saved grouped preview to:\n{previewDest}");
+                        var storageFile = await savePicker.PickSaveFileAsync().AsTask();
+                        if (storageFile == null)
+                        {
+                            UpdateStatus("Save cancelled.");
+                            continue;
+                        }
+
+                        // Write text (UTF-8)
+                        var text = string.Join(Environment.NewLine, lines);
+                        await FileIO.WriteTextAsync(storageFile, text);
+
+                        var savedPath = string.Empty;
+                        try { savedPath = storageFile.Path ?? string.Empty; } catch { /* ignore */ }
+
+                        UpdateStatus($"Saved grouped preview to: {savedPath}");
+                        await LocalShowErrorAsync("Save parsed files", $"Saved grouped preview to:\n{(string.IsNullOrEmpty(savedPath) ? storageFile.Name : savedPath)}");
                     }
                     catch (Exception ex)
                     {
