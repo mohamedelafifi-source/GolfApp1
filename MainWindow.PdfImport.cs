@@ -1,3 +1,4 @@
+
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -450,7 +451,7 @@ namespace GolfApp1
                 }
                 else if (result == ContentDialogResult.Secondary)
                 {
-                    // Save TSV including Club column
+                    // Save CSV including Date and Venue (no Raw line)
                     try
                     {
                         var folderPicker = new FolderPicker();
@@ -466,9 +467,17 @@ namespace GolfApp1
                         }
 
                         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-                        var previewDest = Path.Combine(folder.Path, $"club_parsed_preview_{stamp}.tsv");
+                        var previewDest = Path.Combine(folder.Path, $"club_parsed_preview_{stamp}.csv");
 
-                        var lines = new List<string> { "Club\tName\tPoints\tHandicap\tPosition\tRawLine" };
+                        // Date and Venue from UI (fallbacks)
+                        var dateValue = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date;
+                        var dateStr = dateValue.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                        var venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
+
+                        var lines = new List<string>();
+                        // Header
+                        lines.Add("Date,Venue,Club,Name,Points,Handicap,Position");
+
                         foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
                         {
                             string clubShort = kv.Key;
@@ -476,12 +485,13 @@ namespace GolfApp1
 
                             foreach (var row in kv.Value)
                             {
-                                var name = row.Name?.Replace('\t', ' ') ?? string.Empty;
-                                var points = row.Points?.Replace('\t', ' ') ?? string.Empty;
-                                var hc = row.Handicap?.Replace('\t', ' ') ?? string.Empty;
+                                var name = CsvEscape(row.Name ?? string.Empty);
+                                var points = CsvEscape(row.Points ?? string.Empty);
+                                var hc = CsvEscape(row.Handicap ?? string.Empty);
                                 var position = row.Position.ToString(CultureInfo.InvariantCulture);
-                                var raw = row.Raw?.Replace('\t', ' ') ?? string.Empty;
-                                lines.Add($"{clubDisplay}\t{name}\t{points}\t{hc}\t{position}\t{raw}");
+                                var club = CsvEscape(clubDisplay);
+                                // Date and Venue same for all rows (from UI)
+                                lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{name},{points},{hc},{position}");
                             }
                         }
 
@@ -794,6 +804,16 @@ namespace GolfApp1
 
             double m = matches;
             return ((m / len1) + (m / len2) + ((m - t) / m)) / 3.0;
+        }
+
+        // CSV escaping helper
+        private static string CsvEscape(string s)
+        {
+            if (s is null) return string.Empty;
+            var escaped = s.Replace("\"", "\"\"");
+            if (escaped.Contains(',') || escaped.Contains('"') || escaped.Contains('\n') || escaped.Contains('\r'))
+                return $"\"{escaped}\"";
+            return escaped;
         }
     }
 }
