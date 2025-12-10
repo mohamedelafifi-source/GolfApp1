@@ -1,4 +1,3 @@
-
 //MainWindow.PdfImport.cs
 //============================
 using System;
@@ -12,10 +11,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.Storage;
-using Windows.Storage.Pickers;
-using Windows.Storage;
-using Windows.Storage.Pickers;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using GolfApp1.Services;
@@ -317,14 +312,15 @@ namespace GolfApp1
                     continue;
                 }
 
-                // Fuzzy fallback
+                // Fuzzy fallback with more forgiving thresholds for single-character typos
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                const double GroupThreshold = 0.95;
-                const double GroupMinFirstSim = 0.70;
-                const double GroupMinLastExact = 0.995;
-                const double GroupMinFirstWhenLastExact = 0.65;
+                // Lowered thresholds to catch single-character typos like "Taraaf" vs "Tarraf"
+                const double GroupThreshold = 0.88;            // Was 0.95, now 0.88 to catch ~90% last name similarity
+                const double GroupMinFirstSim = 0.65;          // Was 0.70, now 0.65
+                const double GroupMinLastExact = 0.90;         // Was 0.995, now 0.90 for near-exact last names
+                const double GroupMinFirstWhenLastExact = 0.60; // Was 0.65, now 0.60
 
                 foreach (var key in nameToClub.Keys)
                 {
@@ -524,6 +520,7 @@ namespace GolfApp1
         }
 
         // Original grouped preview kept for compatibility (close-only dialog)
+        // Updated with same relaxed thresholds
         private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -567,10 +564,11 @@ namespace GolfApp1
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                const double GroupThreshold = 0.95;
-                const double GroupMinFirstSim = 0.70;
-                const double GroupMinLastExact = 0.995;
-                const double GroupMinFirstWhenLastExact = 0.65;
+                // Relaxed thresholds to match main flow
+                const double GroupThreshold = 0.88;
+                const double GroupMinFirstSim = 0.65;
+                const double GroupMinLastExact = 0.90;
+                const double GroupMinFirstWhenLastExact = 0.60;
 
                 foreach (var key in nameToClub.Keys)
                 {
