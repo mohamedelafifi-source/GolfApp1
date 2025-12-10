@@ -312,21 +312,33 @@ namespace GolfApp1
                     continue;
                 }
 
-                // Fuzzy fallback with more forgiving thresholds for single-character typos
+                // Fuzzy fallback with forgiving thresholds for typos
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                // Lowered thresholds to catch single-character typos like "Taraaf" vs "Tarraf"
-                const double GroupThreshold = 0.88;            // Was 0.95, now 0.88 to catch ~90% last name similarity
-                const double GroupMinFirstSim = 0.65;          // Was 0.70, now 0.65
-                const double GroupMinLastExact = 0.90;         // Was 0.995, now 0.90 for near-exact last names
-                const double GroupMinFirstWhenLastExact = 0.60; // Was 0.65, now 0.60
+                const double GroupThreshold = 0.88;            // Combined score threshold
+                const double GroupMinFirstSim = 0.65;          // Minimum first name similarity
+                const double GroupMinLastExact = 0.90;         // Near-exact last name threshold
+                const double GroupMinFirstWhenLastExact = 0.60; // Minimum first name when last matches
 
                 foreach (var key in nameToClub.Keys)
                 {
                     var metrics = ComputeNameMetrics(normalized, key);
-                    if (metrics.combined > best)
+
+                    // Improved matching: when both have exact last name match, prefer better first name
+                    if (bestMetrics.lastSim >= 0.995 && metrics.lastSim >= 0.995)
                     {
+                        // Both have exact last name match - compare first names to avoid matching siblings/spouses
+                        if (metrics.firstSim > bestMetrics.firstSim)
+                        {
+                            best = metrics.combined;
+                            bestKey = key;
+                            bestMetrics = metrics;
+                        }
+                    }
+                    else if (metrics.combined > best)
+                    {
+                        // Standard comparison: take highest combined score
                         best = metrics.combined;
                         bestKey = key;
                         bestMetrics = metrics;
@@ -564,7 +576,6 @@ namespace GolfApp1
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                // Relaxed thresholds to match main flow
                 const double GroupThreshold = 0.88;
                 const double GroupMinFirstSim = 0.65;
                 const double GroupMinLastExact = 0.90;
@@ -573,7 +584,18 @@ namespace GolfApp1
                 foreach (var key in nameToClub.Keys)
                 {
                     var metrics = ComputeNameMetrics(normalized, key);
-                    if (metrics.combined > best)
+
+                    // Improved matching: when both have exact last name match, prefer better first name
+                    if (bestMetrics.lastSim >= 0.995 && metrics.lastSim >= 0.995)
+                    {
+                        if (metrics.firstSim > bestMetrics.firstSim)
+                        {
+                            best = metrics.combined;
+                            bestKey = key;
+                            bestMetrics = metrics;
+                        }
+                    }
+                    else if (metrics.combined > best)
                     {
                         best = metrics.combined;
                         bestKey = key;
@@ -682,7 +704,7 @@ namespace GolfApp1
             if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
         }
 
-        //Trim names and be case insensitive
+        // Normalize names: lowercase, remove diacritics, collapse whitespace
         private static string NormalizeName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return string.Empty;
