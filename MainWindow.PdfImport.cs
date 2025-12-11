@@ -1,20 +1,20 @@
 //MainWindow.PdfImport.cs
 //============================
-using System;
-using System.IO;
-using System.Linq;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Collections.Generic;
-using System.Globalization;
+using GolfApp1.Models;
+using GolfApp1.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.Storage.Pickers;
-using GolfApp1.Services;
-using GolfApp1.Models;
 using WinRT.Interop;
 
 namespace GolfApp1
@@ -269,7 +269,7 @@ namespace GolfApp1
         }
 
         // Step 2: grouped preview with dialog chrome actions:
-        // Primary = Update (placeholder), Secondary = Save (choose file name & folder), Close = Exit.
+        // Primary = Update (database), Secondary = Save (CSV), Close = Exit.
         private async Task ShowClubGroupedPreviewWithActionsAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -312,14 +312,14 @@ namespace GolfApp1
                     continue;
                 }
 
-                // Fuzzy fallback with forgiving thresholds for typos
+                // Fuzzy fallback with forgiving thresholds
                 double best = 0.0;
                 string? bestKey = null;
                 (double combined, double firstSim, double lastSim) bestMetrics = (0, 0, 0);
-                const double GroupThreshold = 0.88;            // Combined score threshold
-                const double GroupMinFirstSim = 0.65;          // Minimum first name similarity
-                const double GroupMinLastExact = 0.90;         // Near-exact last name threshold
-                const double GroupMinFirstWhenLastExact = 0.60; // Minimum first name when last matches
+                const double GroupThreshold = 0.88;
+                const double GroupMinFirstSim = 0.65;
+                const double GroupMinLastExact = 0.90;
+                const double GroupMinFirstWhenLastExact = 0.60;
 
                 foreach (var key in nameToClub.Keys)
                 {
@@ -328,7 +328,6 @@ namespace GolfApp1
                     // Improved matching: when both have exact last name match, prefer better first name
                     if (bestMetrics.lastSim >= 0.995 && metrics.lastSim >= 0.995)
                     {
-                        // Both have exact last name match - compare first names to avoid matching siblings/spouses
                         if (metrics.firstSim > bestMetrics.firstSim)
                         {
                             best = metrics.combined;
@@ -338,7 +337,6 @@ namespace GolfApp1
                     }
                     else if (metrics.combined > best)
                     {
-                        // Standard comparison: take highest combined score
                         best = metrics.combined;
                         bestKey = key;
                         bestMetrics = metrics;
@@ -456,9 +454,142 @@ namespace GolfApp1
 
                 if (result == ContentDialogResult.Primary)
                 {
-                    // Placeholder for Update
-                    UpdateStatus("Update invoked (not implemented).");
-                    await LocalShowErrorAsync("Update", "Update action not implemented yet. Placeholder only.");
+                    // Update database with parsed results
+                    try
+                    {
+                        UpdateStatus("Updating database with parsed results...");
+
+                        // Get Date and Venue from UI
+                        var dateValue = ResultsDatePicker?.Date.Date ?? DateTime.Now.Date;
+                        var venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
+
+                        int totalProcessed = 0;
+                        int totalInserted = 0;
+                        int totalErrors = 0;
+                        var errors = new StringBuilder();
+
+                        // Process each club group
+                        foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
+                        {
+                            string clubShort = kv.Key;
+
+                            // Skip unknown players
+                            if (clubShort == unknownKey)
+                            {
+                                UpdateStatus($"Skipping {kv.Value.Count} unknown players.");
+                                continue;
+                            }
+
+                            // Get all players for this club to resolve names
+                            var clubPlayers = await _db.GetPlayersByClubAsync(clubShort);
+                            var playerLookup = clubPlayers.ToDictionary(
+                                p => NormalizeName(p.Name ?? string.Empty),
+                                p => p,
+                                StringComparer.OrdinalIgnoreCase
+                            );
+
+                            // Sort players by points (descending) to calculate position within club
+                            var sortedPlayers = kv.Value
+                                .OrderByDescending(p => ParsePoints(p.Points))
+                                .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+
+                            int position = 1;
+                            foreach (var player in sortedPlayers)
+                            {
+                                totalProcessed++;
+
+                                try
+                                {
+                                    var normalized = NormalizeName(player.Name ?? string.Empty);
+
+                                    // Try to find player in database
+                                    Player? dbPlayer = null;
+                                    if (playerLookup.TryGetValue(normalized, out var exactMatch))
+                                    {
+                                        dbPlayer = exactMatch;
+                                    }
+                                    else
+                                    {
+                                        // Try fuzzy match if exact match fails
+                                        double best = 0.0;
+                                        Player? bestMatch = null;
+                                        foreach (var p in clubPlayers)
+                                        {
+                                            var metrics = ComputeNameMetrics(normalized, NormalizeName(p.Name ?? string.Empty));
+                                            if (metrics.combined > best)
+                                            {
+                                                best = metrics.combined;
+                                                bestMatch = p;
+                                            }
+                                        }
+
+                                        // Use fuzzy match if confidence is high enough
+                                        if (best >= 0.88 && bestMatch != null)
+                                        {
+                                            dbPlayer = bestMatch;
+                                        }
+                                    }
+
+                                    // Create ResultRecord
+                                    var resultRecord = new ResultRecord
+                                    {
+                                        Id = Guid.NewGuid().ToString(),
+                                        Date = dateValue,
+                                        Club = clubShort,
+                                        Venue = venue,
+                                        PlayerId = dbPlayer?.Id ?? string.Empty,
+                                        PartnerId = string.Empty, // Partner field left empty as per requirements
+                                        PlayerName = player.Name ?? string.Empty,
+                                        Partner = string.Empty,
+                                        Hcp = ParseHandicap(player.Handicap),
+                                        Result = ParsePoints(player.Points),
+                                        Position = position
+                                    };
+
+                                    // Insert into database
+                                    var error = await _db.UpsertResultAsync(resultRecord);
+
+                                    if (error != null)
+                                    {
+                                        totalErrors++;
+                                        errors.AppendLine($"Error for {player.Name}: {error}");
+                                    }
+                                    else
+                                    {
+                                        totalInserted++;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    totalErrors++;
+                                    errors.AppendLine($"Exception for {player.Name}: {ex.Message}");
+                                }
+
+                                position++;
+                            }
+                        }
+
+                        // Show summary
+                        var summary = $"Database update complete.\n\n" +
+                                      $"Processed: {totalProcessed}\n" +
+                                      $"Inserted: {totalInserted}\n" +
+                                      $"Errors: {totalErrors}";
+
+                        if (totalErrors > 0)
+                        {
+                            summary += $"\n\nErrors:\n{errors}";
+                        }
+
+                        UpdateStatus($"Database updated: {totalInserted} records inserted.");
+                        await LocalShowErrorAsync("Update Complete", summary);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Database update failed: " + ex.Message);
+                        await LocalShowErrorAsync("Update Failed", $"Failed to update database:\n{ex.Message}");
+                    }
+
                     keepShowing = false;
                 }
                 else if (result == ContentDialogResult.Secondary)
@@ -474,7 +605,6 @@ namespace GolfApp1
                         var venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
 
                         var lines = new List<string>();
-                        // Header (Position column removed)
                         lines.Add("Date,Venue,Club,Name,Points,Handicap");
 
                         foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
@@ -488,7 +618,6 @@ namespace GolfApp1
                                 var points = CsvEscape(row.Points ?? string.Empty);
                                 var hc = CsvEscape(row.Handicap ?? string.Empty);
                                 var club = CsvEscape(clubDisplay);
-                                // Date and Venue same for all rows (from UI)
                                 lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{name},{points},{hc}");
                             }
                         }
@@ -532,7 +661,6 @@ namespace GolfApp1
         }
 
         // Original grouped preview kept for compatibility (close-only dialog)
-        // Updated with same relaxed thresholds
         private async Task ShowClubGroupedPreviewAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)
         {
             if (_db is null)
@@ -696,12 +824,47 @@ namespace GolfApp1
             await dlg.ShowAsync();
         }
 
-        // Local UI helper used inside this file to avoid cross-file symbol issues during incremental edits.
+        // Local UI helper
         private async Task LocalShowErrorAsync(string title, string message)
         {
             UpdateStatus(message);
             var dlg = new ContentDialog { Title = title, Content = message, CloseButtonText = "OK", XamlRoot = this.Content?.XamlRoot };
             if (this.Content?.XamlRoot != null) await dlg.ShowAsync();
+        }
+
+        // Helper method to parse points
+        private static int ParsePoints(string points)
+        {
+            if (string.IsNullOrWhiteSpace(points) || points == "—")
+                return 0;
+
+            // Handle special cases
+            if (points.Equals("WD", StringComparison.OrdinalIgnoreCase) ||
+                points.Equals("DQ", StringComparison.OrdinalIgnoreCase) ||
+                points.Equals("DNS", StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            if (int.TryParse(points, out var result))
+                return result;
+
+            return 0;
+        }
+
+        // Helper method to parse handicap
+        private static int ParseHandicap(string handicap)
+        {
+            if (string.IsNullOrWhiteSpace(handicap) || handicap == "—")
+                return 0;
+
+            // Remove parentheses and plus signs
+            var clean = handicap.Trim('(', ')', '+', ' ');
+
+            // Try to parse as integer (truncate decimal values)
+            if (double.TryParse(clean, NumberStyles.Float,
+                CultureInfo.InvariantCulture, out var result))
+                return (int)Math.Round(result);
+
+            return 0;
         }
 
         // Normalize names: lowercase, remove diacritics, collapse whitespace
