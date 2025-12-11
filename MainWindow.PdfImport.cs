@@ -531,7 +531,7 @@ namespace GolfApp1
                                         }
                                     }
 
-                                    // Create ResultRecord
+                                    // Create ResultRecord - use database name if player matched, otherwise parsed name
                                     var resultRecord = new ResultRecord
                                     {
                                         Id = Guid.NewGuid().ToString(),
@@ -540,7 +540,7 @@ namespace GolfApp1
                                         Venue = venue,
                                         PlayerId = dbPlayer?.Id ?? string.Empty,
                                         PartnerId = string.Empty, // Partner field left empty as per requirements
-                                        PlayerName = player.Name ?? string.Empty,
+                                        PlayerName = dbPlayer?.Name ?? player.Name ?? string.Empty, // Use DB name if matched
                                         Partner = string.Empty,
                                         Hcp = ParseHandicap(player.Handicap),
                                         Result = ParsePoints(player.Points),
