@@ -364,7 +364,19 @@ namespace GolfApp1
                 return;
             }
 
-            // Build grouped UI content
+            // Sort players within each club by points (descending) and assign positions
+            foreach (var clubShort in grouped.Keys.ToList())
+            {
+                var sortedPlayers = grouped[clubShort]
+                    .OrderByDescending(p => ParsePoints(p.Points))
+                    .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select((player, index) => (player.Name, player.Points, player.Handicap, index + 1, player.Raw))
+                    .ToList();
+
+                grouped[clubShort] = sortedPlayers;
+            }
+
+            // Build grouped UI content with Position column
             var panel = new StackPanel { Spacing = 10 };
             foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
             {
@@ -381,40 +393,63 @@ namespace GolfApp1
                 var headerRow = new Grid
                 {
                     ColumnDefinitions = {
+                        new ColumnDefinition { Width = new GridLength(50) },
                         new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                         new ColumnDefinition { Width = new GridLength(80) },
                         new ColumnDefinition { Width = new GridLength(80) }
                     },
                     Margin = new Thickness(0, 4, 0, 2)
                 };
-                headerRow.Children.Add(new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+
+                var posHeader = new TextBlock { Text = "Pos", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
+                Grid.SetColumn(posHeader, 0);
+                headerRow.Children.Add(posHeader);
+
+                var nameHeaderText = new TextBlock { Text = "Name", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+                Grid.SetColumn(nameHeaderText, 1);
+                headerRow.Children.Add(nameHeaderText);
+
                 var ph = new TextBlock { Text = "Points", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
-                Grid.SetColumn(ph, 1);
+                Grid.SetColumn(ph, 2);
                 headerRow.Children.Add(ph);
+
                 var hh = new TextBlock { Text = "Handicap", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center };
-                Grid.SetColumn(hh, 2);
+                Grid.SetColumn(hh, 3);
                 headerRow.Children.Add(hh);
+
                 panel.Children.Add(headerRow);
 
-                foreach (var row in kv.Value.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                // Display players in sorted order with their calculated position
+                foreach (var row in kv.Value)
                 {
                     var r = new Grid
                     {
                         ColumnDefinitions = {
+                            new ColumnDefinition { Width = new GridLength(50) },
                             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                             new ColumnDefinition { Width = new GridLength(80) },
                             new ColumnDefinition { Width = new GridLength(80) }
                         },
                         Margin = new Thickness(0, 2, 0, 2)
                     };
-                    r.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
-                    var pt = new TextBlock { Text = row.Points, TextAlignment = TextAlignment.Center };
-                    Grid.SetColumn(pt, 1);
+
+                    var posTb = new TextBlock { Text = row.Position.ToString(), TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(posTb, 0);
+                    r.Children.Add(posTb);
+
+                    var nameTb = new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(nameTb, 1);
+                    r.Children.Add(nameTb);
+
+                    var pt = new TextBlock { Text = row.Points, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(pt, 2);
                     r.Children.Add(pt);
+
                     var hcText = string.IsNullOrWhiteSpace(row.Handicap) || row.Handicap == "—" ? "—" : (row.Handicap.StartsWith("(") ? row.Handicap : $"({row.Handicap})");
-                    var hct = new TextBlock { Text = hcText, TextAlignment = TextAlignment.Center };
-                    Grid.SetColumn(hct, 2);
+                    var hct = new TextBlock { Text = hcText, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(hct, 3);
                     r.Children.Add(hct);
+
                     panel.Children.Add(r);
                 }
             }
@@ -425,7 +460,7 @@ namespace GolfApp1
             var dlgContent = new StackPanel { Spacing = 8 };
             dlgContent.Children.Add(new TextBlock
             {
-                Text = "Grouped by Club",
+                Text = "Grouped by Club (sorted by points)",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap
             });
@@ -468,7 +503,7 @@ namespace GolfApp1
                         int totalErrors = 0;
                         var errors = new StringBuilder();
 
-                        // Process each club group
+                        // Process each club group (players are already sorted with calculated positions)
                         foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
                         {
                             string clubShort = kv.Key;
@@ -488,14 +523,8 @@ namespace GolfApp1
                                 StringComparer.OrdinalIgnoreCase
                             );
 
-                            // Sort players by points (descending) to calculate position within club
-                            var sortedPlayers = kv.Value
-                                .OrderByDescending(p => ParsePoints(p.Points))
-                                .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-                                .ToList();
-
-                            int position = 1;
-                            foreach (var player in sortedPlayers)
+                            // Players are already sorted by points with calculated positions
+                            foreach (var player in kv.Value)
                             {
                                 totalProcessed++;
 
@@ -532,6 +561,7 @@ namespace GolfApp1
                                     }
 
                                     // Create ResultRecord - use database name if player matched, otherwise parsed name
+                                    // Use the calculated position from the sorted list
                                     var resultRecord = new ResultRecord
                                     {
                                         Id = Guid.NewGuid().ToString(),
@@ -544,7 +574,7 @@ namespace GolfApp1
                                         Partner = string.Empty,
                                         Hcp = ParseHandicap(player.Handicap),
                                         Result = ParsePoints(player.Points),
-                                        Position = position
+                                        Position = player.Position // Use calculated position from sorted list
                                     };
 
                                     // Insert into database
@@ -565,8 +595,6 @@ namespace GolfApp1
                                     totalErrors++;
                                     errors.AppendLine($"Exception for {player.Name}: {ex.Message}");
                                 }
-
-                                position++;
                             }
                         }
 
@@ -594,7 +622,7 @@ namespace GolfApp1
                 }
                 else if (result == ContentDialogResult.Secondary)
                 {
-                    // Save CSV including Date and Venue (user picks filename + folder)
+                    // Save CSV including Date, Venue, and Position
                     try
                     {
                         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
@@ -605,7 +633,7 @@ namespace GolfApp1
                         var venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? string.Empty;
 
                         var lines = new List<string>();
-                        lines.Add("Date,Venue,Club,Name,Points,Handicap");
+                        lines.Add("Date,Venue,Club,Position,Name,Points,Handicap");
 
                         foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
                         {
@@ -618,7 +646,8 @@ namespace GolfApp1
                                 var points = CsvEscape(row.Points ?? string.Empty);
                                 var hc = CsvEscape(row.Handicap ?? string.Empty);
                                 var club = CsvEscape(clubDisplay);
-                                lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{name},{points},{hc}");
+                                var position = row.Position.ToString();
+                                lines.Add($"{CsvEscape(dateStr)},{CsvEscape(venue)},{club},{position},{name},{points},{hc}");
                             }
                         }
 
