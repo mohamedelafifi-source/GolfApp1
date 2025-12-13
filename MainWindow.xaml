@@ -35,7 +35,8 @@
             <Button Content="Reports">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="Reports" Click="OnEditSettingsClicked" />
+                        <MenuFlyoutItem Text="By Club" Click="OnReportByClubClicked" />
+                        <MenuFlyoutItem Text="By Player" Click="OnReportByPlayerClicked" IsEnabled="False" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
@@ -151,7 +152,7 @@
                     <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
                     <Button x:Name="DeleteClubButton" Content="Delete Club" Click="OnDeleteClubClicked" Margin="8,0,0,0" />
                     <Button x:Name="AddPlayerButton" Content="Players" Click="OnAddPlayerClicked" Width="110" />
-                    <Button x:Name="LoadFileButton" Content="Bulk Add" Click="OnBulkAddClicked" Width="160" />
+                    <Button x:Name="LoadFileButton" Content="Import" Click="OnBulkAddClicked" Width="160" />
                     <Button x:Name="ExitEditorButton" Content="Exit" Click="OnEditorExitClicked" Width="110" />
                 </StackPanel>
 
