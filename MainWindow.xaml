@@ -36,7 +36,7 @@
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="By Club" Click="OnReportByClubClicked" />
-                        <MenuFlyoutItem Text="By Player" Click="OnReportByPlayerClicked" IsEnabled="False" />
+                        <MenuFlyoutItem Text="By Player" Click="OnReportByPlayerClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>

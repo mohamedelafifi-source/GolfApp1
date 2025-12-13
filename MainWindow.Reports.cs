@@ -58,11 +58,12 @@ namespace GolfApp1
                     return;
                 }
 
-                // Sort results: by Venue, then Date, then Result (descending - best score first)
+                // Sort results: by Venue, then Date, then Result (descending - best score first), then Handicap (ascending - lower handicap first)
                 var sortedResults = results
                     .OrderBy(r => r.Venue ?? string.Empty)
                     .ThenBy(r => r.Date)
                     .ThenByDescending(r => r.Result)
+                    .ThenBy(r => r.Hcp)
                     .ToList();
 
                 // Generate CSV content
@@ -89,8 +90,71 @@ namespace GolfApp1
 
         private async void OnReportByPlayerClicked(object sender, RoutedEventArgs e)
         {
-            // Placeholder for future implementation
-            await ShowErrorAsync("Report - By Player", "This feature is not yet implemented.");
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await ShowErrorAsync("Report Error", "Database not initialized.");
+                return;
+            }
+
+            try
+            {
+                UpdateStatus("Generating report for all players...");
+
+                // Get all clubs
+                var clubs = await _db.GetAllClubsAsync();
+                if (clubs == null || clubs.Count == 0)
+                {
+                    UpdateStatus("No clubs found in database.");
+                    await ShowErrorAsync("Report - By Player", "No clubs found in the database.");
+                    return;
+                }
+
+                // Gather all results from all clubs
+                var allResults = new List<ResultRecord>();
+                foreach (var club in clubs)
+                {
+                    var clubResults = await _db.GetResultsAsync(club.ShortName);
+                    if (clubResults != null)
+                    {
+                        allResults.AddRange(clubResults);
+                    }
+                }
+
+                if (allResults.Count == 0)
+                {
+                    UpdateStatus("No results found in database.");
+                    await ShowErrorAsync("Report - By Player", "No results found in the database.");
+                    return;
+                }
+
+                // Sort results: by Result (descending - best score first), then Handicap (ascending), then Player Name
+                var sortedResults = allResults
+                    .OrderByDescending(r => r.Result)
+                    .ThenBy(r => r.Hcp)
+                    .ThenBy(r => r.PlayerName ?? string.Empty)
+                    .ToList();
+
+                // Generate CSV content
+                var csvContent = GenerateAllPlayersReportCsv(sortedResults);
+
+                // Show file save picker
+                var savedFile = await SaveCsvFileAsync("All_Players_Report", csvContent);
+                if (savedFile != null)
+                {
+                    UpdateStatus($"Report saved: {savedFile.Name}");
+                    await ShowErrorAsync("Report Saved", $"All players report saved successfully to:\n{savedFile.Path}");
+                }
+                else
+                {
+                    UpdateStatus("Report save cancelled.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Report generation failed: {ex.Message}");
+                await ShowErrorAsync("Report Error", $"Failed to generate report:\n{ex.Message}");
+            }
         }
 
         private async Task<Club?> ShowClubSelectionDialogAsync(List<Club> clubs)
@@ -177,6 +241,37 @@ namespace GolfApp1
                 var position = result.Position.ToString();
 
                 csv.AppendLine($"{venue},{date},{playerName},{partner},{handicap},{score},{position}");
+            }
+
+            return csv.ToString();
+        }
+
+        private string GenerateAllPlayersReportCsv(List<ResultRecord> results)
+        {
+            var csv = new StringBuilder();
+
+            // Header with report information
+            csv.AppendLine("All Players Report - Sorted by Best Score");
+            csv.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            csv.AppendLine($"Total Results: {results.Count}");
+            csv.AppendLine();
+
+            // CSV column headers
+            csv.AppendLine("Player Name,Club,Venue,Date,Partner,Handicap,Result,Position");
+
+            // Data rows
+            foreach (var result in results)
+            {
+                var playerName = CsvEscape(result.PlayerName ?? string.Empty);
+                var club = CsvEscape(result.Club ?? string.Empty);
+                var venue = CsvEscape(result.Venue ?? string.Empty);
+                var date = result.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var partner = CsvEscape(result.Partner ?? string.Empty);
+                var handicap = result.Hcp.ToString();
+                var score = result.Result.ToString();
+                var position = result.Position.ToString();
+
+                csv.AppendLine($"{playerName},{club},{venue},{date},{partner},{handicap},{score},{position}");
             }
 
             return csv.ToString();
