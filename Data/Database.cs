@@ -431,7 +431,30 @@ SET NumberOfPlayers = (
                 return ex.Message;
             }
         }
+        // Add this method to Database.cs class
+        public async Task<string?> ClearAllResultsAsync()
+        {
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
 
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "DELETE FROM Results;";
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
         /// <summary>
         /// Public helper to delete all Results that reference a given player id (as PlayerId or PartnerId).
         /// Returns null on success or an error message.
