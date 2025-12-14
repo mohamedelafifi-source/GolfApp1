@@ -24,6 +24,10 @@ namespace GolfApp1
         private readonly List<Club> _clubs = new();
         private int _index = 0;
 
+        // Track original club values to detect changes
+        private string _originalShortName = string.Empty;
+        private string _originalLongName = string.Empty;
+
         // Player editor state (kept for UI navigation; populated from VM)
         private readonly List<Player> _players = new();
         private int _playerIndex = 0;
@@ -199,6 +203,11 @@ namespace GolfApp1
                 ShortNameTextBox.Text = c.ShortName;
                 LongNameTextBox.Text = c.LongName;
                 ClubPlayersLabel.Text = c.NumberOfPlayers.ToString();
+
+                // Store original values for change detection
+                _originalShortName = c.ShortName;
+                _originalLongName = c.LongName;
+
                 SaveButton.Content = "Save";
                 UpdateStatus($"Editing club {_index + 1} of {total}. Players: {c.NumberOfPlayers}");
             }
@@ -207,6 +216,11 @@ namespace GolfApp1
                 ShortNameTextBox.Text = string.Empty;
                 LongNameTextBox.Text = string.Empty;
                 ClubPlayersLabel.Text = "0";
+
+                // Clear original values for new club
+                _originalShortName = string.Empty;
+                _originalLongName = string.Empty;
+
                 SaveButton.Content = "Create";
                 UpdateStatus("Creating new club.");
             }
@@ -249,7 +263,15 @@ namespace GolfApp1
         {
             var shortName = ShortNameTextBox.Text?.Trim() ?? string.Empty;
             var longName = LongNameTextBox.Text?.Trim() ?? string.Empty;
-            SaveButton.IsEnabled = shortName.Length == 4 && longName.Length >= 1 && longName.Length <= 20;
+
+            // Check if fields are valid
+            bool fieldsValid = shortName.Length == 4 && longName.Length >= 1 && longName.Length <= 20;
+
+            // Check if data has changed
+            bool dataChanged = shortName != _originalShortName || longName != _originalLongName;
+
+            // Enable Save button only if fields are valid AND data has changed
+            SaveButton.IsEnabled = fieldsValid && dataChanged;
         }
 
         private async void OnSaveClicked(object sender, RoutedEventArgs e)
@@ -566,7 +588,7 @@ namespace GolfApp1
             EditorArea.Visibility = Visibility.Collapsed;
             UpdateStatus("Editor closed.");
         }
-       
+
 
         private async void OnDeletePlayerClicked(object sender, RoutedEventArgs e)
         {
@@ -733,7 +755,7 @@ namespace GolfApp1
             }
         }
 
-        
+
         private static string MapDbErrorToUserMessage(string dbError, string code)
         {
             if (string.IsNullOrEmpty(dbError)) return "A database error occurred.";
