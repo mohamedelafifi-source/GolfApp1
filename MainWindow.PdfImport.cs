@@ -21,7 +21,7 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
-        // Set to true to select the preview TSV in Explorer after parsing.
+        // Set to true to automatically open Explorer showing debug files after parsing.
         private readonly bool _openExplorerAfterExport = false;
 
         private async void OnImportPdfClicked(object sender, RoutedEventArgs e)
@@ -63,23 +63,44 @@ namespace GolfApp1
         {
             UpdateStatus($"Parsing PDF: {file.Name}");
 
+            // Prepare temp directory for diagnostic files
+            var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
+            Directory.CreateDirectory(tempDir);
+
             try
             {
                 var importer = new ResultsImportService();
                 var parsed = await importer.ParsePdfAsync(file.Path);
 
-                if (parsed == null || parsed.Count == 0)
+                // DIAGNOSTIC: ALWAYS save raw extracted lines for debugging
+                var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+
+                if (parsed != null && parsed.Count > 0)
                 {
-                    UpdateStatus("No lines parsed from PDF.");
-                    await LocalShowErrorAsync("Import", "No lines were parsed from the selected PDF.");
-                    return;
+                    var rawLines = new List<string>();
+                    rawLines.Add($"=== PDF EXTRACTION REPORT ===");
+                    rawLines.Add($"File: {file.Name}");
+                    rawLines.Add($"Extracted: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                    rawLines.Add($"Total lines extracted: {parsed.Count}");
+                    rawLines.Add($"");
+                    rawLines.Add($"=== RAW EXTRACTED LINES ===");
+
+                    for (int i = 0; i < parsed.Count; i++)
+                    {
+                        rawLines.Add($"[Line {i + 1}] {parsed[i].RawLine ?? "(empty)"}");
+                    }
+
+                    File.WriteAllLines(rawPath, rawLines);
+                    UpdateStatus($"DEBUG: Extracted {parsed.Count} lines. Raw data saved to: {rawPath}");
+                }
+                else
+                {
+                    File.WriteAllText(rawPath, $"NO LINES EXTRACTED FROM PDF\nFile: {file.Name}\nTime: {DateTime.Now}\n\nPossible reasons:\n- PDF contains images of text (not searchable)\n- PDF is encrypted/protected\n- PDF has unusual encoding");
+                    UpdateStatus($"DEBUG: No lines extracted. Check: {rawPath}");
                 }
 
-                // temp storage for raw & preview files
-                var tempDir = Path.Combine(Path.GetTempPath(), "GolfApp1_Parsed");
-                Directory.CreateDirectory(tempDir);
-                var rawPath = Path.Combine(tempDir, $"parsed_raw_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-                File.WriteAllLines(rawPath, parsed.Select(p => p.RawLine ?? string.Empty));
+                
+                
 
                 // parsing regexes and extraction
                 var truncatedEntryRx = new Regex(
@@ -88,15 +109,45 @@ namespace GolfApp1
                 var parAny = new Regex(@"\((?<inside>[^)]*)\)", RegexOptions.Compiled);
 
                 var extractedRows = new List<(string? Name, string Points, string Handicap, string Raw, int Position)>();
+                var skippedLines = new List<string>(); // Track lines that don't match expected format
+                var diagnosticLog = new List<string>();
+
+                diagnosticLog.Add($"=== PARSING DIAGNOSTIC LOG ===");
+                diagnosticLog.Add($"File: {file.Name}");
+                diagnosticLog.Add($"Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                diagnosticLog.Add($"Total raw lines to process: {parsed.Count}");
+                diagnosticLog.Add($"");
 
                 foreach (var p in parsed)
                 {
                     var raw = (p.RawLine ?? string.Empty).Trim();
-                    if (!Regex.IsMatch(raw, @"^\s*\d") || !raw.Contains(')')) continue;
+
+                    // Skip only completely empty lines
+                    if (string.IsNullOrWhiteSpace(raw))
+                    {
+                        diagnosticLog.Add($"[SKIP-EMPTY] (blank line)");
+                        continue;
+                    }
+
+                    // OLD STRICT FILTER: Check if line would have been rejected
+                    bool hasLeadingDigit = Regex.IsMatch(raw, @"^\s*\d");
+                    bool hasParenthesis = raw.Contains(')');
+                    bool passesOldFilter = hasLeadingDigit && hasParenthesis;
+
+                    if (!passesOldFilter)
+                    {
+                        skippedLines.Add($"Line: {raw}");
+                        skippedLines.Add($"  Reason: {(!hasLeadingDigit ? "No leading digit" : "")} {(!hasParenthesis ? "No closing parenthesis" : "")}");
+                        diagnosticLog.Add($"[WARN-FORMAT] {raw}");
+                        diagnosticLog.Add($"  - Has leading digit: {hasLeadingDigit}");
+                        diagnosticLog.Add($"  - Has parenthesis: {hasParenthesis}");
+                        // Continue processing anyway with fallback methods
+                    }
 
                     var idx = raw.IndexOf(')');
                     var truncated = idx >= 0 ? raw.Substring(0, idx + 1) : raw;
 
+                    // Try primary pattern
                     var m = truncatedEntryRx.Match(truncated);
                     if (m.Success)
                     {
@@ -107,53 +158,102 @@ namespace GolfApp1
                         var posMatch = Regex.Match(raw, @"^\s*(\d+)");
                         var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
                         extractedRows.Add((name, points, hcDisplay, raw, pos));
+                        diagnosticLog.Add($"[SUCCESS-PRIMARY] {name} | {points} pts | HC:{hcDisplay}");
                         continue;
                     }
 
-                    var par = parAny.Match(truncated);
-                    if (par.Success)
+                    // Try parenthesis pattern
+                    if (idx >= 0)
                     {
-                        var inside = par.Groups["inside"].Value;
-                        var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
-                        var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
-
-                        var before = truncated.Substring(0, par.Index).Trim();
-                        var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                        string pointsToken = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
-                        string nameToken = Regex.Replace(before, @"^\d+\s*", "").Trim();
-
-                        if (tokens.Length >= 2)
+                        var par = parAny.Match(truncated);
+                        if (par.Success)
                         {
-                            var last = tokens[^1].Trim().TrimEnd('.', ',');
-                            if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase))
-                            {
-                                pointsToken = last;
-                                var nameParts = tokens.Skip(1).Take(tokens.Length - 2).ToArray();
-                                nameToken = nameParts.Length > 0 ? string.Join(' ', nameParts) : Regex.Replace(before, @"^\d+\s*", "").Trim();
-                            }
-                        }
+                            var inside = par.Groups["inside"].Value;
+                            var numMatch = Regex.Match(inside, @"[+-]?\d{1,2}(?:\.\d)?");
+                            var hcFound = numMatch.Success ? numMatch.Value.Trim() : "—";
 
-                        var posMatch = Regex.Match(raw, @"^\s*(\d+)");
-                        var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
-                        var nameNormalized = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(nameToken, @"\s+", " ").Trim() : p.Name;
-                        extractedRows.Add((Regex.Replace(nameNormalized, @"\s+", " "), pointsToken, hcFound, raw, pos));
-                        continue;
+                            var before = truncated.Substring(0, par.Index).Trim();
+                            var tokens = before.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                            string pointsToken = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
+                            string nameToken = Regex.Replace(before, @"^\d+\s*", "").Trim();
+
+                            if (tokens.Length >= 2)
+                            {
+                                var last = tokens[^1].Trim().TrimEnd('.', ',');
+                                if (Regex.IsMatch(last, @"^(?:-?\d+|WD|DQ|DNS)$", RegexOptions.IgnoreCase))
+                                {
+                                    pointsToken = last;
+                                    var nameParts = tokens.Skip(1).Take(tokens.Length - 2).ToArray();
+                                    nameToken = nameParts.Length > 0 ? string.Join(' ', nameParts) : Regex.Replace(before, @"^\d+\s*", "").Trim();
+                                }
+                            }
+
+                            var posMatch = Regex.Match(raw, @"^\s*(\d+)");
+                            var pos = posMatch.Success ? int.Parse(posMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                            var nameNormalized = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(nameToken, @"\s+", " ").Trim() : p.Name;
+                            extractedRows.Add((Regex.Replace(nameNormalized, @"\s+", " "), pointsToken, hcFound, raw, pos));
+                            diagnosticLog.Add($"[SUCCESS-PAREN] {nameNormalized} | {pointsToken} pts | HC:{hcFound}");
+                            continue;
+                        }
                     }
 
-                    // fallback
-                    var fallbackName = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(truncated, @"\s+", " ").Trim() : p.Name;
+                    // Fallback - accept all lines that weren't matched above
+                    var fallbackName = string.IsNullOrWhiteSpace(p.Name) ? Regex.Replace(raw, @"\s+", " ").Trim() : p.Name;
                     var fallbackPoints = string.IsNullOrWhiteSpace(p.Result) ? "—" : p.Result;
                     var fallbackHc = string.IsNullOrWhiteSpace(p.HandicapIndex) ? "—" : p.HandicapIndex.TrimStart('+');
                     var posFallbackMatch = Regex.Match(raw, @"^\s*(\d+)");
                     var posFallback = posFallbackMatch.Success ? int.Parse(posFallbackMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
                     extractedRows.Add((fallbackName, fallbackPoints, fallbackHc, raw, posFallback));
+                    diagnosticLog.Add($"[FALLBACK] {fallbackName} | {fallbackPoints} | HC:{fallbackHc}");
+                }
+
+                diagnosticLog.Add($"");
+                diagnosticLog.Add($"=== PARSING SUMMARY ===");
+                diagnosticLog.Add($"Successfully extracted: {extractedRows.Count} records");
+                diagnosticLog.Add($"Lines with format warnings: {skippedLines.Count / 2}");
+                diagnosticLog.Add($"Completed: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+
+                // Save diagnostic log
+                var diagnosticPath = Path.Combine(tempDir, $"diagnostic_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                File.WriteAllLines(diagnosticPath, diagnosticLog);
+
+                // Save skipped lines report if any
+                if (skippedLines.Count > 0)
+                {
+                    var skippedPath = Path.Combine(tempDir, $"format_warnings_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                    var skippedReport = new List<string>();
+                    skippedReport.Add($"=== FORMAT WARNING REPORT ===");
+                    skippedReport.Add($"File: {file.Name}");
+                    skippedReport.Add($"These {skippedLines.Count / 2} lines didn't match the expected format:");
+                    skippedReport.Add($"Expected format: '<position> <name> <points> (<handicap>)'");
+                    skippedReport.Add($"Example: '1 Player Name 42 (17)'");
+                    skippedReport.Add($"");
+                    skippedReport.AddRange(skippedLines);
+                    File.WriteAllLines(skippedPath, skippedReport);
+                    UpdateStatus($"DEBUG: {skippedLines.Count / 2} format warnings. See: {skippedPath}");
+                }
+
+                // Check if we got ANY results after parsing
+                if (extractedRows.Count == 0)
+                {
+                    UpdateStatus($"No valid results extracted from {parsed.Count} raw lines.");
+
+                    var noResultsMsg = $"PDF was read successfully ({parsed.Count} lines extracted)\n" +
+                                       $"BUT no valid player records were found.\n\n" +
+                                       $"Invalid Format";
+                                       
+
+                    await LocalShowErrorAsync("Import - No Valid Records", noResultsMsg);
+                    return;
                 }
 
                 // write preview temp file
                 var previewPath = Path.Combine(tempDir, $"parsed_preview_{DateTime.Now:yyyyMMdd_HHmmss}.tsv");
                 File.WriteAllLines(previewPath, new[] { "Name\tPoints\tHandicap\tPosition\tRawLine" }
                     .Concat(extractedRows.Select(e => $"{e.Name}\t{e.Points}\t{e.Handicap}\t{e.Position}\t{e.Raw}")));
+
+                UpdateStatus($"Successfully parsed {extractedRows.Count} records from {parsed.Count} lines");
 
                 if (_openExplorerAfterExport)
                 {
@@ -232,6 +332,18 @@ namespace GolfApp1
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                     TextWrapping = TextWrapping.Wrap
                 });
+
+                // Add diagnostic info link
+                var diagnosticInfo = new TextBlock
+                {
+                    Text = $"Debug files saved to: {tempDir}",
+                    FontSize = 11,
+                    FontStyle = Windows.UI.Text.FontStyle.Italic,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8)
+                };
+                contentRoot.Children.Add(diagnosticInfo);
+
                 contentRoot.Children.Add(scroll);
 
                 var confirmDlg = new ContentDialog
@@ -264,10 +376,17 @@ namespace GolfApp1
             catch (Exception ex)
             {
                 UpdateStatus("Preview failed: " + ex.Message);
-                await LocalShowErrorAsync("Preview failed", ex.Message);
+
+                var errorDetails = $"PDF parsing failed with error:\n\n{ex.Message}\n\n" +
+                                   $"Stack trace:\n{ex.StackTrace}\n\n" +
+                                   $"Check diagnostic files in:\n{tempDir}";
+
+                await LocalShowErrorAsync("Preview Failed", errorDetails);
             }
         }
 
+        
+        //=========================================================================
         // Step 2: grouped preview with dialog chrome actions:
         // Primary = Update (database), Secondary = Save (CSV), Close = Exit.
         private async Task ShowClubGroupedPreviewWithActionsAsync(List<(string? Name, string Points, string Handicap, string Raw, int Position)> extractedRows)

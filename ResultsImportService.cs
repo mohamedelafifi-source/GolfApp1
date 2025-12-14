@@ -1,4 +1,3 @@
-
 //ResultsImportService.cs
 //==========================
 using System;
@@ -24,10 +23,38 @@ namespace GolfApp1.Services
             await Task.Run(() =>
             {
                 using var doc = PdfDocument.Open(filePath);
+
                 for (int i = 1; i <= doc.NumberOfPages; i++)
                 {
                     var page = doc.GetPage(i);
+
+                    // Try multiple extraction methods
                     var rows = ExtractLinesFromPage(page);
+
+                    // Fallback to simple text extraction if word-based fails
+                    if (rows.Count == 0)
+                    {
+                        var simpleText = page.Text;
+                        if (!string.IsNullOrWhiteSpace(simpleText))
+                        {
+                            rows = simpleText
+                                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Select(l => l.Trim())
+                                .Where(l => !string.IsNullOrWhiteSpace(l))
+                                .ToList();
+                        }
+                    }
+
+                    // Last resort: letter-based extraction
+                    if (rows.Count == 0)
+                    {
+                        var letters = page.Letters.ToList();
+                        if (letters.Count > 0)
+                        {
+                            rows = ExtractLinesFromLetters(letters);
+                        }
+                    }
+
                     foreach (var line in rows)
                     {
                         var parsed = TryParseLine(line);
@@ -82,6 +109,49 @@ namespace GolfApp1.Services
             }
 
             return lines;
+        }
+
+        private static List<string> ExtractLinesFromLetters(List<Letter> letters)
+        {
+            if (letters.Count == 0) return new List<string>();
+
+            // Group letters by Y-coordinate (same line)
+            const double lineToler = 3.0;
+            var lines = new List<List<Letter>>();
+
+            foreach (var letter in letters)
+            {
+                var y = letter.GlyphRectangle.Bottom;
+                var line = lines.FirstOrDefault(l =>
+                    l.Count > 0 && Math.Abs(l[0].GlyphRectangle.Bottom - y) <= lineToler);
+
+                if (line == null)
+                {
+                    line = new List<Letter>();
+                    lines.Add(line);
+                }
+
+                line.Add(letter);
+            }
+
+            // Sort lines by Y (top to bottom), then letters within line by X (left to right)
+            var sortedLines = lines
+                .OrderByDescending(line => line.Count > 0 ? line[0].GlyphRectangle.Bottom : 0)
+                .ToList();
+
+            var result = new List<string>();
+            foreach (var line in sortedLines)
+            {
+                var orderedLetters = line.OrderBy(l => l.GlyphRectangle.Left).ToList();
+                var text = string.Concat(orderedLetters.Select(l => l.Value));
+                text = Regex.Replace(text, @"\s+", " ").Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    result.Add(text);
+                }
+            }
+
+            return result;
         }
 
         private static ParsedPlayerRecord TryParseLine(string line)
