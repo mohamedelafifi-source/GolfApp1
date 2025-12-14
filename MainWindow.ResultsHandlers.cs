@@ -1,4 +1,5 @@
 // MainWindow.ResultsHandlers.cs
+//===============================
 
 using System;
 using System.Linq;
@@ -10,6 +11,14 @@ namespace GolfApp1
 {
     public sealed partial class MainWindow
     {
+        // Re-entrancy guard flags
+        private bool _isInitializingResults = false;
+        private bool _isUpdatingVenue = false;
+        private bool _isUpdatingClub = false;
+
+        // Track last known selection to detect changes
+        private object? _lastKnownVenueSelection = null;
+
         // Results menu: show import dialog (Import Results -> Import PDF)
         private async void OnResultsClicked(object sender, RoutedEventArgs e)
         {
@@ -51,33 +60,90 @@ namespace GolfApp1
         // Show the Enter Results header UI
         private void OnEnterResultsClicked(object sender, RoutedEventArgs e)
         {
-            UpdateStatus("Enter Results selected.");
+            // Guard against re-entrancy
+            if (_isInitializingResults) return;
 
-            // Hide club editor and show results area
-            if (EditorArea is not null) EditorArea.Visibility = Visibility.Collapsed;
-            if (ResultsArea is not null) ResultsArea.Visibility = Visibility.Visible;
+            try
+            {
+                _isInitializingResults = true;
 
-            // Initialize header
-            if (ResultsDatePicker is not null) ResultsDatePicker.Date = DateTimeOffset.Now.Date;
+                UpdateStatus("Enter Results selected.");
 
-            // Refresh local clubs and populate club/venue lists
-            RefreshLocalClubsFromVm();
-            if (ResultsClubCombo is not null) ResultsClubCombo.ItemsSource = _clubs.Select(c => c.ShortName).ToList();
-            if (ResultsVenueCombo is not null) ResultsVenueCombo.ItemsSource = _clubs.Select(c => c.LongName).ToList();
+                // Hide club editor and show results area
+                if (EditorArea is not null) EditorArea.Visibility = Visibility.Collapsed;
+                if (ResultsArea is not null) ResultsArea.Visibility = Visibility.Visible;
 
-            // hide entry panel until Proceed
-            if (ResultsEntryPanel is not null) ResultsEntryPanel.Visibility = Visibility.Collapsed;
+                // Initialize header
+                if (ResultsDatePicker is not null) ResultsDatePicker.Date = DateTimeOffset.Now.Date;
 
-            UpdateProceedButtonState();
+                // Temporarily detach event handlers to prevent premature firing during initialization
+                if (ResultsClubCombo is not null)
+                {
+                    ResultsClubCombo.SelectionChanged -= OnResultsClubChanged;
+                    ResultsClubCombo.DropDownClosed -= OnResultsClubDropDownClosed;
+                }
+                if (ResultsVenueCombo is not null)
+                {
+                    ResultsVenueCombo.SelectionChanged -= OnResultsVenueChanged;
+                    ResultsVenueCombo.DropDownClosed -= OnResultsVenueDropDownClosed;
+                }
+
+                try
+                {
+                    // Refresh local clubs and populate club/venue lists
+                    RefreshLocalClubsFromVm();
+                    if (ResultsClubCombo is not null)
+                    {
+                        ResultsClubCombo.SelectedIndex = -1; // Clear selection first
+                        ResultsClubCombo.SelectedItem = null; // Ensure completely cleared
+                        ResultsClubCombo.ItemsSource = _clubs.Select(c => c.ShortName).ToList();
+                    }
+                    if (ResultsVenueCombo is not null)
+                    {
+                        ResultsVenueCombo.SelectedIndex = -1; // Clear selection first
+                        ResultsVenueCombo.SelectedItem = null; // Ensure completely cleared
+                        ResultsVenueCombo.ItemsSource = _clubs.Select(c => c.LongName).ToList();
+                        _lastKnownVenueSelection = null; // Reset tracking
+                    }
+                }
+                finally
+                {
+                    // Re-attach event handlers
+                    if (ResultsClubCombo is not null)
+                    {
+                        ResultsClubCombo.SelectionChanged += OnResultsClubChanged;
+                        ResultsClubCombo.DropDownClosed += OnResultsClubDropDownClosed;
+                    }
+                    if (ResultsVenueCombo is not null)
+                    {
+                        ResultsVenueCombo.SelectionChanged += OnResultsVenueChanged;
+                        ResultsVenueCombo.DropDownClosed += OnResultsVenueDropDownClosed;
+                    }
+                }
+
+                // hide entry panel until Proceed
+                if (ResultsEntryPanel is not null) ResultsEntryPanel.Visibility = Visibility.Collapsed;
+
+                UpdateProceedButtonState();
+            }
+            finally
+            {
+                _isInitializingResults = false;
+            }
         }
 
         // Called when the club combo selection changes in the header.
         private async void OnResultsClubChanged(object? sender, SelectionChangedEventArgs e)
         {
-            UpdateProceedButtonState();
+            // Guard against re-entrancy during initialization
+            if (_isInitializingResults || _isUpdatingClub) return;
 
             try
             {
+                _isUpdatingClub = true;
+
+                UpdateProceedButtonState();
+
                 if (sender is not ComboBox cb) return;
                 var selected = cb.SelectedItem?.ToString();
                 if (string.IsNullOrEmpty(selected))
@@ -98,18 +164,71 @@ namespace GolfApp1
                 if (PlayerNameCombo is not null) PlayerNameCombo.ItemsSource = null;
                 if (PartnerCombo is not null) PartnerCombo.ItemsSource = null;
             }
+            finally
+            {
+                _isUpdatingClub = false;
+            }
+        }
+
+        // New handler for club DropDownClosed - ensures selection is processed
+        private void OnResultsClubDropDownClosed(object? sender, object e)
+        {
+            if (_isInitializingResults) return;
+            UpdateProceedButtonState();
         }
 
         // Called when the date picker value changes.
         private void OnResultsDateChanged(object? sender, DatePickerValueChangedEventArgs e)
         {
+            // Guard against re-entrancy during initialization
+            if (_isInitializingResults) return;
+
             UpdateProceedButtonState();
         }
 
         // Called when venue selection changes.
         private void OnResultsVenueChanged(object? sender, SelectionChangedEventArgs e)
         {
-            UpdateProceedButtonState();
+            // Guard against re-entrancy during initialization or updates
+            if (_isInitializingResults || _isUpdatingVenue) return;
+
+            try
+            {
+                _isUpdatingVenue = true;
+
+                // Update tracking
+                if (sender is ComboBox cb)
+                {
+                    _lastKnownVenueSelection = cb.SelectedItem;
+                }
+
+                UpdateProceedButtonState();
+            }
+            finally
+            {
+                _isUpdatingVenue = false;
+            }
+        }
+
+        // New handler for venue DropDownClosed - ensures selection is processed even for index 0
+        // NOTE: Does NOT check or set _isUpdatingVenue to avoid any deadlock scenarios
+        private void OnResultsVenueDropDownClosed(object? sender, object e)
+        {
+            // ONLY skip if initializing - do NOT check _isUpdatingVenue
+            if (_isInitializingResults) return;
+
+            // Process the selection without any locking
+            if (sender is ComboBox cb && cb.SelectedItem != null)
+            {
+                // Only update if selection actually changed
+                if (_lastKnownVenueSelection != cb.SelectedItem)
+                {
+                    _lastKnownVenueSelection = cb.SelectedItem;
+                    UpdateStatus($"Venue selected: '{cb.SelectedItem}'");
+                }
+
+                UpdateProceedButtonState();
+            }
         }
 
         // Helper: enable Proceed and Import PDF only when date, club and venue are set.
@@ -164,6 +283,9 @@ namespace GolfApp1
                 // Reset buffer/state
                 _resultBuffer.Clear();
                 _resultIndex = -1;
+
+                // Reset venue tracking
+                _lastKnownVenueSelection = null;
 
                 // Disable proceed until header is filled next time
                 if (ProceedResultsButton is not null) ProceedResultsButton.IsEnabled = false;
