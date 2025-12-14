@@ -240,7 +240,7 @@ namespace GolfApp1
                     UpdateStatus($"No valid results extracted from {parsed.Count} raw lines.");
 
                     var noResultsMsg = $"PDF was read successfully ({parsed.Count} lines extracted)\n" +
-                                       $"BUT no valid player records were found.\n\n" +
+                                       $"BUT no valid player records were found.\n" +
                                        $"Invalid Format";
                                        
 
