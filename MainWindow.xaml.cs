@@ -216,13 +216,14 @@ namespace GolfApp1
 
             ValidateNameFields();
         }
+        //Stop at the first club if it exsists, otherwise at the first empty slot.
         private void OnFileNewClicked(object sender, RoutedEventArgs e)
         {
-            _index = _clubs.Count;
+            // Start at the first existing club, or first empty slot if no clubs exist
+            _index = _clubs.Count > 0 ? 0 : _clubs.Count;
             EditorArea.Visibility = Visibility.Visible;
             ShowCurrent();
         }
-
         private void OnFileOpenClicked(object sender, RoutedEventArgs e)
         {
             UpdateStatus("Action: Create New Players - will be implemented next.");
