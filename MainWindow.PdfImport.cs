@@ -482,7 +482,7 @@ namespace GolfApp1
                 await LocalShowErrorAsync("Club Preview", "No players matched clubs in the database.");
                 return;
             }
-
+            /*Start replacement
             // Sort players within each club by points (descending) and assign positions
             foreach (var clubShort in grouped.Keys.ToList())
             {
@@ -494,7 +494,19 @@ namespace GolfApp1
 
                 grouped[clubShort] = sortedPlayers;
             }
+            //end replacement */
+            // Sort players within each club by points (descending), then by handicap (ascending for ties)
+            foreach (var clubShort in grouped.Keys.ToList())
+            {
+                var sortedPlayers = grouped[clubShort]
+                    .OrderByDescending(p => ParsePoints(p.Points))        // Primary: Higher points = better position
+                    .ThenBy(p => ParseHandicap(p.Handicap))               // Tiebreaker: Lower handicap = better position
+                    .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase) // Final tiebreaker: Alphabetical
+                    .Select((player, index) => (player.Name, player.Points, player.Handicap, index + 1, player.Raw))
+                    .ToList();
 
+                grouped[clubShort] = sortedPlayers;
+            }
             // Build grouped UI content with Position column
             var panel = new StackPanel { Spacing = 10 };
             foreach (var kv in grouped.OrderBy(g => g.Key == unknownKey ? "ZZZ" : g.Key))
