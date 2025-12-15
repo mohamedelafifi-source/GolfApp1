@@ -93,8 +93,10 @@ CREATE TABLE IF NOT EXISTS Results (
             }
         }
 
-        // Clubs
-        // NOTE: compute NumberOfPlayers from Players table to avoid stored-count drift.
+        // ============================================================================
+        // CLUBS
+        // ============================================================================
+
         public async Task<List<Club>> GetAllClubsAsync()
         {
             var list = new List<Club>();
@@ -107,7 +109,7 @@ SELECT c.Id, c.ShortName, c.LongName,
 FROM Clubs c
 LEFT JOIN Players p ON p.ClubShortName = c.ShortName
 GROUP BY c.Id, c.ShortName, c.LongName
-ORDER BY c.ShortName;"; // stable ordering
+ORDER BY c.ShortName;";
             using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
             {
@@ -141,7 +143,48 @@ VALUES ($id, $short, $long, $players);";
             await tran.CommitAsync();
         }
 
-        // Players
+        public async Task<string?> DeleteClubAsync(string clubShort)
+        {
+            if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                // check player count
+                using var cntCmd = _conn.CreateCommand();
+                cntCmd.CommandText = "SELECT COUNT(1) FROM Players WHERE ClubShortName = $club;";
+                cntCmd.Parameters.AddWithValue("$club", clubShort);
+                var scalar = await cntCmd.ExecuteScalarAsync();
+                var count = scalar == null || scalar == DBNull.Value ? 0 : Convert.ToInt32(scalar);
+
+                if (count > 0)
+                {
+                    return $"Club '{clubShort}' has {count} players. Remove players first or delete them before deleting the club.";
+                }
+
+                using var tran = _conn.BeginTransaction();
+                using var delCmd = _conn.CreateCommand();
+                delCmd.Transaction = tran;
+                delCmd.CommandText = "DELETE FROM Clubs WHERE ShortName = $club;";
+                delCmd.Parameters.AddWithValue("$club", clubShort);
+                await delCmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        // ============================================================================
+        // PLAYERS
+        // ============================================================================
+
         public async Task<(bool Success, string? Error)> InsertPlayerAsync(Player player)
         {
             if (player is null) throw new ArgumentNullException(nameof(player));
@@ -269,7 +312,6 @@ WHERE Id = $id;";
             var list = new List<Player>();
             if (_conn is null) return list;
             using var cmd = _conn.CreateCommand();
-            // deterministic ordering by Code
             cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note FROM Players WHERE ClubShortName = $club ORDER BY Code;";
             cmd.Parameters.AddWithValue("$club", clubShort);
             using var rdr = await cmd.ExecuteReaderAsync();
@@ -288,8 +330,6 @@ WHERE Id = $id;";
             return list;
         }
 
-        // Delete player and update club counts.
-        // This implementation deletes any Results that reference the player first to avoid FK violations.
         public async Task<string?> DeletePlayerAsync(string playerId)
         {
             if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
@@ -299,7 +339,6 @@ WHERE Id = $id;";
             {
                 using var tran = _conn.BeginTransaction();
 
-                // find player's club
                 using var clubCmd = _conn.CreateCommand();
                 clubCmd.Transaction = tran;
                 clubCmd.CommandText = "SELECT ClubShortName FROM Players WHERE Id = $id LIMIT 1;";
@@ -307,7 +346,6 @@ WHERE Id = $id;";
                 var scalar = await clubCmd.ExecuteScalarAsync();
                 var club = scalar == null || scalar == DBNull.Value ? null : Convert.ToString(scalar);
 
-                // delete any results that reference this player (player or partner)
                 using (var delResultsCmd = _conn.CreateCommand())
                 {
                     delResultsCmd.Transaction = tran;
@@ -316,14 +354,12 @@ WHERE Id = $id;";
                     await delResultsCmd.ExecuteNonQueryAsync();
                 }
 
-                // delete player
                 using var delCmd = _conn.CreateCommand();
                 delCmd.Transaction = tran;
                 delCmd.CommandText = "DELETE FROM Players WHERE Id = $id;";
                 delCmd.Parameters.AddWithValue("$id", playerId);
                 await delCmd.ExecuteNonQueryAsync();
 
-                // decrement club count when applicable
                 if (!string.IsNullOrEmpty(club))
                 {
                     using var decCmd = _conn.CreateCommand();
@@ -333,6 +369,32 @@ WHERE Id = $id;";
                     await decCmd.ExecuteNonQueryAsync();
                 }
 
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        public async Task<string?> DeleteResultsByPlayerIdAsync(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "DELETE FROM Results WHERE PlayerId = $id OR PartnerId = $id;";
+                cmd.Parameters.AddWithValue("$id", playerId);
+                await cmd.ExecuteNonQueryAsync();
                 await tran.CommitAsync();
                 return null;
             }
@@ -389,103 +451,14 @@ SET NumberOfPlayers = (
             }
             catch (SqliteException)
             {
-                // propagate as -1 so callers treat as error (or change to throw if you prefer)
                 return -1;
             }
         }
 
-        public async Task<string?> DeleteClubAsync(string clubShort)
-        {
-            if (string.IsNullOrWhiteSpace(clubShort)) throw new ArgumentNullException(nameof(clubShort));
-            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+        // ============================================================================
+        // RESULTS
+        // ============================================================================
 
-            try
-            {
-                // check player count
-                using var cntCmd = _conn.CreateCommand();
-                cntCmd.CommandText = "SELECT COUNT(1) FROM Players WHERE ClubShortName = $club;";
-                cntCmd.Parameters.AddWithValue("$club", clubShort);
-                var scalar = await cntCmd.ExecuteScalarAsync();
-                var count = scalar == null || scalar == DBNull.Value ? 0 : Convert.ToInt32(scalar);
-
-                if (count > 0)
-                {
-                    return $"Club '{clubShort}' has {count} players. Remove players first or delete them before deleting the club.";
-                }
-
-                using var tran = _conn.BeginTransaction();
-                using var delCmd = _conn.CreateCommand();
-                delCmd.Transaction = tran;
-                delCmd.CommandText = "DELETE FROM Clubs WHERE ShortName = $club;";
-                delCmd.Parameters.AddWithValue("$club", clubShort);
-                await delCmd.ExecuteNonQueryAsync();
-                await tran.CommitAsync();
-                return null;
-            }
-            catch (SqliteException ex)
-            {
-                return ex.Message;
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
-        }
-        // Add this method to Database.cs class
-        public async Task<string?> ClearAllResultsAsync()
-        {
-            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
-
-            try
-            {
-                using var tran = _conn.BeginTransaction();
-                using var cmd = _conn.CreateCommand();
-                cmd.Transaction = tran;
-                cmd.CommandText = "DELETE FROM Results;";
-                await cmd.ExecuteNonQueryAsync();
-                await tran.CommitAsync();
-                return null;
-            }
-            catch (SqliteException ex)
-            {
-                return ex.Message;
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
-        }
-        /// <summary>
-        /// Public helper to delete all Results that reference a given player id (as PlayerId or PartnerId).
-        /// Returns null on success or an error message.
-        /// </summary>
-        public async Task<string?> DeleteResultsByPlayerIdAsync(string playerId)
-        {
-            if (string.IsNullOrWhiteSpace(playerId)) throw new ArgumentNullException(nameof(playerId));
-            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
-
-            try
-            {
-                using var tran = _conn.BeginTransaction();
-                using var cmd = _conn.CreateCommand();
-                cmd.Transaction = tran;
-                cmd.CommandText = "DELETE FROM Results WHERE PlayerId = $id OR PartnerId = $id;";
-                cmd.Parameters.AddWithValue("$id", playerId);
-                await cmd.ExecuteNonQueryAsync();
-                await tran.CommitAsync();
-                return null;
-            }
-            catch (SqliteException ex)
-            {
-                return ex.Message;
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
-        }
-
-        // Results
         public async Task<string?> UpsertResultAsync(Models.ResultRecord r)
         {
             if (r is null) throw new ArgumentNullException(nameof(r));
@@ -548,7 +521,6 @@ VALUES ($id, $date, $club, $venue, $playerId, $partnerId, $playerName, $partnerN
                 sql += " AND Date <= $to";
                 cmd.Parameters.AddWithValue("$to", to.Value.ToString("yyyy-MM-dd"));
             }
-            // deterministic ordering by Date then Id
             sql += " ORDER BY Date, Id;";
             cmd.CommandText = sql;
 
@@ -600,6 +572,172 @@ VALUES ($id, $date, $club, $venue, $playerId, $partnerId, $playerName, $partnerN
                 return ex.Message;
             }
         }
+
+        public async Task<string?> ClearAllResultsAsync()
+        {
+            if (_conn is null) throw new InvalidOperationException("Database not initialized.");
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "DELETE FROM Results;";
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        // ============================================================================
+        // NEW METHODS FOR NEW/EXISTING RESULTS WORKFLOW
+        // ============================================================================
+
+        /// <summary>
+        /// Get all distinct venues that have results recorded.
+        /// </summary>
+        public async Task<List<string>> GetVenuesWithResultsAsync()
+        {
+            var list = new List<string>();
+            if (_conn is null) return list;
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT DISTINCT Venue 
+FROM Results 
+WHERE Venue IS NOT NULL AND Venue != '' 
+ORDER BY Venue;";
+
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                list.Add(rdr.GetString(0));
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Get the single date for a specific venue (assumes one game per venue).
+        /// Returns null if no results found for that venue.
+        /// </summary>
+        public async Task<DateTime?> GetDateForVenueAsync(string venue)
+        {
+            if (string.IsNullOrWhiteSpace(venue)) return null;
+            if (_conn is null) return null;
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT Date FROM Results WHERE Venue = $venue LIMIT 1;";
+            cmd.Parameters.AddWithValue("$venue", venue);
+
+            var scalar = await cmd.ExecuteScalarAsync();
+            if (scalar == null || scalar == DBNull.Value) return null;
+
+            return DateTime.TryParse(Convert.ToString(scalar), out var dt) ? dt : null;
+        }
+
+        /// <summary>
+        /// Get distinct clubs that participated at a specific venue on a specific date.
+        /// </summary>
+        public async Task<List<string>> GetClubsForVenueDateAsync(string venue, DateTime date)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(venue)) return list;
+            if (_conn is null) return list;
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT DISTINCT ClubShortName 
+FROM Results 
+WHERE Venue = $venue AND Date = $date 
+ORDER BY ClubShortName;";
+            cmd.Parameters.AddWithValue("$venue", venue);
+            cmd.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd"));
+
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                list.Add(rdr.GetString(0));
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Check if a result exists for a specific venue, date, and player.
+        /// Returns the existing result ID if found, null otherwise.
+        /// </summary>
+        public async Task<(bool Exists, string? ExistingId)> CheckResultExistsAsync(string venue, DateTime date, string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(venue) || string.IsNullOrWhiteSpace(playerId))
+                return (false, null);
+            if (_conn is null) return (false, null);
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT Id FROM Results 
+WHERE Venue = $venue AND Date = $date AND PlayerId = $playerId 
+LIMIT 1;";
+            cmd.Parameters.AddWithValue("$venue", venue);
+            cmd.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd"));
+            cmd.Parameters.AddWithValue("$playerId", playerId);
+
+            var scalar = await cmd.ExecuteScalarAsync();
+            if (scalar == null || scalar == DBNull.Value) return (false, null);
+
+            return (true, Convert.ToString(scalar));
+        }
+
+        /// <summary>
+        /// Get results for a specific venue, date, and club.
+        /// </summary>
+        public async Task<List<Models.ResultRecord>> GetResultsByVenueDateClubAsync(string venue, DateTime date, string clubShort)
+        {
+            var list = new List<Models.ResultRecord>();
+            if (string.IsNullOrWhiteSpace(venue) || string.IsNullOrWhiteSpace(clubShort)) return list;
+            if (_conn is null) return list;
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT Id, Date, ClubShortName, Venue, PlayerId, PartnerId, PlayerName, PartnerName, Hcp, Score, Position 
+FROM Results 
+WHERE Venue = $venue AND Date = $date AND ClubShortName = $club
+ORDER BY Position, PlayerName;";
+
+            cmd.Parameters.AddWithValue("$venue", venue);
+            cmd.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd"));
+            cmd.Parameters.AddWithValue("$club", clubShort);
+
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                list.Add(new Models.ResultRecord
+                {
+                    Id = rdr.GetString(0),
+                    Date = DateTime.TryParse(rdr.GetString(1), out var dt) ? dt : DateTime.MinValue,
+                    Club = rdr.GetString(2),
+                    Venue = rdr.IsDBNull(3) ? string.Empty : rdr.GetString(3),
+                    PlayerId = rdr.IsDBNull(4) ? string.Empty : rdr.GetString(4),
+                    PartnerId = rdr.IsDBNull(5) ? string.Empty : rdr.GetString(5),
+                    PlayerName = rdr.IsDBNull(6) ? string.Empty : rdr.GetString(6),
+                    Partner = rdr.IsDBNull(7) ? string.Empty : rdr.GetString(7),
+                    Hcp = rdr.IsDBNull(8) ? 0 : rdr.GetInt32(8),
+                    Result = rdr.IsDBNull(9) ? 0 : rdr.GetInt32(9),
+                    Position = rdr.IsDBNull(10) ? 0 : rdr.GetInt32(10)
+                });
+            }
+            return list;
+        }
+
+        // ============================================================================
+        // DISPOSE
+        // ============================================================================
 
         public void Dispose()
         {

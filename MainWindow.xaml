@@ -38,7 +38,9 @@
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="Club Data" Click="OnFileNewClicked" />
-                        <MenuFlyoutItem Text="Enter Results" Click="OnEnterResultsClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="New Results" Click="OnNewResultsClicked" />
+                        <MenuFlyoutItem Text="Existing Results" Click="OnExistingResultsClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
@@ -57,8 +59,26 @@
         <Grid Grid.Row="1">
             <!-- Results entry area (hidden until user chooses Enter Results) -->
             <StackPanel x:Name="ResultsArea" Visibility="Collapsed" Spacing="12">
-                <!-- Fixed header part -->
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Top">
+                <!-- Fixed header part - READONLY DISPLAY WITH NARROWER WIDTHS -->
+                <StackPanel x:Name="ResultsHeaderPanel" Orientation="Horizontal" Spacing="16" VerticalAlignment="Top" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="12" CornerRadius="4">
+                    <StackPanel Orientation="Vertical" Spacing="4" Width="150">
+                        <TextBlock Text="Date:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                        <TextBlock x:Name="ResultsDateDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Vertical" Spacing="4" Width="200">
+                        <TextBlock Text="Venue:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                        <TextBlock x:Name="ResultsVenueDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Vertical" Spacing="4" Width="200">
+                        <TextBlock Text="Club:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                        <TextBlock x:Name="ResultsClubDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- LEGACY CONTROLS - KEPT HIDDEN FOR BACKWARD COMPATIBILITY -->
+                <StackPanel x:Name="ResultsHeaderLegacy" Visibility="Collapsed" Orientation="Horizontal" Spacing="12" VerticalAlignment="Top">
                     <StackPanel Orientation="Vertical" Spacing="4">
                         <TextBlock Text="Date" />
                         <DatePicker x:Name="ResultsDatePicker" DateChanged="OnResultsDateChanged" />
@@ -75,14 +95,14 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Action buttons moved below the header and centered -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
+                <!-- Action buttons - HIDDEN for new workflow -->
+                <StackPanel x:Name="ResultsHeaderButtons" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
                     <Button x:Name="ProceedResultsButton" Content=" Edit " Click="OnProceedResultsClicked" Width="110" IsEnabled="False" />
                     <Button x:Name="ImportPdfButton" Content="Import Result" Click="OnImportPdfClicked" Width="110" IsEnabled="False" />
                     <Button x:Name="CancelResultsButton" Content="Exit" Click="OnCancelResultsClicked" Width="110" />
                 </StackPanel>
 
-                <!-- Per-player entry part (hidden until Proceed) -->
+                <!-- Per-player entry part (shown immediately for new workflow) -->
                 <StackPanel x:Name="ResultsEntryPanel" Visibility="Collapsed" Spacing="8" Margin="0,12,0,0">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <StackPanel Orientation="Vertical" Spacing="4">
