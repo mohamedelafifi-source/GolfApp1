@@ -65,11 +65,11 @@ namespace GolfApp1
                 }
                 else
                 {
-                    // no results yet — start with a single blank entry
+                    // no results yet – start with a single blank entry
                     _resultBuffer.Add(CreateEmptyResultFromHeader());
                     _resultIndex = 0;
                     PopulateResultFields();
-                    UpdateStatus("No existing results found — ready to enter new result.");
+                    UpdateStatus("No existing results found – ready to enter new result.");
                 }
 
                 ResultsEntryPanel.Visibility = Visibility.Visible;
@@ -85,14 +85,7 @@ namespace GolfApp1
             }
         }
 
-        private async Task LoadPlayersForResultsAsync(string clubShort)
-        {
-            if (_vm is null) return;
-            await _vm.LoadPlayersAsync(clubShort);
-            var playerNames = _vm.Players.Select(p => p.Name).ToList();
-            PlayerNameCombo.ItemsSource = playerNames;
-            PartnerCombo.ItemsSource = playerNames;
-        }
+        // REMOVED: LoadPlayersForResultsAsync - now defined in MainWindow.ResultsHandlers.cs
 
         // Navigation / CRUD for results buffer
         private void OnPrevResultClicked(object sender, RoutedEventArgs e)

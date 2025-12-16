@@ -242,6 +242,61 @@ namespace GolfApp1
                 // Load players for the selected club FIRST
                 await LoadPlayersForResultsAsync(clubShortName);
 
+                // Load existing results into buffer if editing
+                if (isEditMode && _db is not null)
+                {
+                    var existing = await _db.GetResultsByVenueDateClubAsync(venue, date, clubShortName);
+                    _resultBuffer.Clear();
+
+                    if (existing != null && existing.Count > 0)
+                    {
+                        foreach (var r in existing)
+                        {
+                            _resultBuffer.Add(r);
+                        }
+                        _resultIndex = 0;
+                        UpdateStatus($"Loaded {existing.Count} existing result(s) for {clubShortName} at {venue}.");
+                    }
+                    else
+                    {
+                        // No existing results - start with blank entry
+                        _resultBuffer.Add(new ResultRecord
+                        {
+                            Date = date,
+                            Club = clubShortName,
+                            Venue = venue,
+                            PlayerName = string.Empty,
+                            Partner = string.Empty,
+                            Hcp = 0,
+                            Result = 0,
+                            Position = 0
+                        });
+                        _resultIndex = 0;
+                        UpdateStatus("No existing results found - ready to enter new result.");
+                    }
+                }
+                else
+                {
+                    // New results mode - start with blank entry
+                    _resultBuffer.Clear();
+                    _resultBuffer.Add(new ResultRecord
+                    {
+                        Date = date,
+                        Club = clubShortName,
+                        Venue = venue,
+                        PlayerName = string.Empty,
+                        Partner = string.Empty,
+                        Hcp = 0,
+                        Result = 0,
+                        Position = 0
+                    });
+                    _resultIndex = 0;
+                    UpdateStatus("Ready to enter new results.");
+                }
+
+                // Populate the fields with the current buffer entry
+                PopulateResultFields();
+
                 // Update the READONLY display TextBlocks
                 if (ResultsDateDisplay is not null)
                     ResultsDateDisplay.Text = date.ToString("dddd, MMMM d, yyyy");

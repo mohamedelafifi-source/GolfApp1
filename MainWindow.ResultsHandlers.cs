@@ -20,6 +20,41 @@ namespace GolfApp1
         // Re-entrancy guard for initialization
         private bool _isInitializingResults = false;
 
+        // Helper: Load players for results entry
+        private async Task LoadPlayersForResultsAsync(string clubShort)
+        {
+            if (_vm is null || string.IsNullOrEmpty(clubShort))
+            {
+                UpdateStatus("Cannot load players: database not initialized or club not specified.");
+                return;
+            }
+
+            try
+            {
+                UpdateStatus($"Loading players for club '{clubShort}'...");
+
+                // Load players using ViewModel
+                await _vm.LoadPlayersAsync(clubShort);
+
+                // Populate Player and Partner ComboBoxes
+                if (PlayerNameCombo is not null)
+                {
+                    PlayerNameCombo.ItemsSource = _vm.Players.Select(p => p.Name).ToList();
+                }
+                if (PartnerCombo is not null)
+                {
+                    PartnerCombo.ItemsSource = _vm.Players.Select(p => p.Name).ToList();
+                }
+
+                UpdateStatus($"Loaded {_vm.Players.Count} players for club '{clubShort}'.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error loading players: {ex.Message}");
+                await ShowErrorAsync("Player Load Error", $"Failed to load players for club '{clubShort}': {ex.Message}");
+            }
+        }
+
         // Legacy handler: "Enter Results" menu item (can be removed if menu is updated)
         private void OnEnterResultsClicked(object sender, RoutedEventArgs e)
         {
@@ -101,7 +136,6 @@ namespace GolfApp1
             }
 
             UpdateStatus($"Loading players for club '{selected}'...");
-            // NOTE: LoadPlayersForResultsAsync is defined elsewhere in another partial file
             _ = LoadPlayersForResultsAsync(selected);
         }
 

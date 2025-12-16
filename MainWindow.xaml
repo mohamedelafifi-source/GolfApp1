@@ -59,21 +59,21 @@
         <Grid Grid.Row="1">
             <!-- Results entry area (hidden until user chooses Enter Results) -->
             <StackPanel x:Name="ResultsArea" Visibility="Collapsed" Spacing="12">
-                <!-- Fixed header part - READONLY DISPLAY WITH NARROWER WIDTHS -->
-                <StackPanel x:Name="ResultsHeaderPanel" Orientation="Horizontal" Spacing="16" VerticalAlignment="Top" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="12" CornerRadius="4">
-                    <StackPanel Orientation="Vertical" Spacing="4" Width="150">
+                <!-- Fixed header part - READONLY DISPLAY -->
+                <StackPanel x:Name="ResultsHeaderPanel" Orientation="Horizontal" Spacing="20" VerticalAlignment="Top" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="12" CornerRadius="4">
+                    <StackPanel Orientation="Vertical" Spacing="4">
                         <TextBlock Text="Date:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                        <TextBlock x:Name="ResultsDateDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ResultsDateDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" />
                     </StackPanel>
 
-                    <StackPanel Orientation="Vertical" Spacing="4" Width="200">
+                    <StackPanel Orientation="Vertical" Spacing="4">
                         <TextBlock Text="Venue:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                        <TextBlock x:Name="ResultsVenueDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ResultsVenueDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" />
                     </StackPanel>
 
-                    <StackPanel Orientation="Vertical" Spacing="4" Width="200">
+                    <StackPanel Orientation="Vertical" Spacing="4">
                         <TextBlock Text="Club:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                        <TextBlock x:Name="ResultsClubDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ResultsClubDisplay" Text="(not set)" FontSize="14" FontWeight="SemiBold" />
                     </StackPanel>
                 </StackPanel>
 
