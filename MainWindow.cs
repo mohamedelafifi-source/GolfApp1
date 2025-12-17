@@ -1,4 +1,4 @@
-
+﻿
 //MainWindow.cs
 //=============================
 using System;
@@ -68,11 +68,11 @@ namespace GolfApp1
                 }
                 else
                 {
-                    // no results yet � start with a single blank entry
+                    // no results yet . start with a single blank entry
                     _resultBuffer.Add(CreateEmptyResultFromHeader());
                     _resultIndex = 0;
                     PopulateResultFields();
-                    UpdateStatus("No existing results found � ready to enter new result.");
+                    UpdateStatus("No existing results found ready to enter new result");
                 }
 
                 ResultsEntryPanel.Visibility = Visibility.Visible;
@@ -88,8 +88,6 @@ namespace GolfApp1
             }
         }
 
-        // REMOVED: LoadPlayersForResultsAsync - now defined in MainWindow.ResultsHandlers.cs
-
         // Navigation / CRUD for results buffer
         private void OnPrevResultClicked(object sender, RoutedEventArgs e)
         {
@@ -103,17 +101,17 @@ namespace GolfApp1
 
         private void OnNextResultClicked(object sender, RoutedEventArgs e)
         {
-            if (_resultBuffer.Count == 0)
+            // Count filled entries (non-empty PlayerName)
+            var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
+
+            // If we already have 8 filled entries, cannot add more
+            if (filledCount >= 8)
             {
-                // Create a new empty entry if buffer is empty
-                _resultBuffer.Add(CreateEmptyResultFromHeader());
-                _resultIndex = 0;
-                PopulateResultFields();
-                UpdateStatus("Created new empty entry.");
+                UpdateStatus("Cannot add more entries: Maximum of 8 entries reached.");
                 return;
             }
 
-            // Move to next record (or create new one if at end)
+            // Move to next record if exists
             if (_resultIndex < _resultBuffer.Count - 1)
             {
                 _resultIndex++;
@@ -121,7 +119,7 @@ namespace GolfApp1
             }
             else
             {
-                // At the end - add a new empty entry
+                // At the end - create new empty entry (only if less than 8 filled)
                 _resultBuffer.Add(CreateEmptyResultFromHeader());
                 _resultIndex = _resultBuffer.Count - 1;
                 PopulateResultFields();
@@ -219,9 +217,9 @@ namespace GolfApp1
                     UpdateStatus("Added new buffer entry.");
                 }
 
-                UpdateStatus($"? Saved result for '{rec.PlayerName}' to database.");
+                UpdateStatus($"✓ Saved result for '{rec.PlayerName}' to database.");
 
-                // After saving, navigate to next empty slot or create new one
+                // After saving, navigate to next empty slot or create new one (respecting 8 entry limit)
                 var nextEmptyIndex = _resultBuffer.FindIndex(_resultIndex + 1, r => string.IsNullOrWhiteSpace(r.PlayerName));
 
                 if (nextEmptyIndex >= 0)
@@ -229,15 +227,27 @@ namespace GolfApp1
                     // Found an existing empty slot
                     _resultIndex = nextEmptyIndex;
                     PopulateResultFields();
-                    UpdateStatus($"? Saved. Moved to next empty slot (index {_resultIndex}).");
+                    UpdateStatus($"✓ Saved. Moved to next empty slot (index {_resultIndex}).");
                 }
                 else
                 {
-                    // No empty slot found - create new one at the end
-                    _resultBuffer.Add(CreateEmptyResultFromHeader());
-                    _resultIndex = _resultBuffer.Count - 1;
-                    PopulateResultFields();
-                    UpdateStatus($"? Saved. Created new empty entry (index {_resultIndex}).");
+                    // No empty slot found check if we can add more (limit of 8 filled entries)
+                    var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
+
+                    if (filledCount < 8)
+                    {
+                        // Create new one at the end
+                        _resultBuffer.Add(CreateEmptyResultFromHeader());
+                        _resultIndex = _resultBuffer.Count - 1;
+                        PopulateResultFields();
+                        UpdateStatus($"✓ Saved. Created new empty entry (index {_resultIndex}).");
+                    }
+                    else
+                    {
+                        // Maximum reached stay on current entry
+                        UpdateStatus($"✓ Saved. Maximum of 8 entries reached.");
+                        PopulateResultFields();
+                    }
                 }
             }
             catch (Exception ex)
@@ -330,11 +340,17 @@ namespace GolfApp1
                 PositionTextBox.Text = string.Empty;
             }
 
-            // Enable Prev/Next buttons based on buffer state
-            PrevResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex > 0;
-            NextResultButton.IsEnabled = true; // Always enabled - will create new entry if needed
+            // Count filled entries for button state
+            var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
 
-            // Enable Update button based on whether data has changed
+            // SIMPLIFIED LOGIC FOR PREV/NEXT BUTTONS:
+            // Previous: Disabled only at first player (index 0)
+            PrevResultButton.IsEnabled = _resultIndex > 0;
+
+            // Next: Disabled only when we have 8 filled players (can't add more)
+            NextResultButton.IsEnabled = filledCount < 8;
+
+            // Enable Update and Next buttons based on required fields
             UpdateResultButtonState();
 
             // Always enable Delete button (even for empty entries - will remove from buffer)
@@ -344,14 +360,21 @@ namespace GolfApp1
         // Check if current data differs from original
         private void UpdateResultButtonState()
         {
-            // Always enable if we're on a blank/new entry
+            // Check if all required fields are filled (Partner is optional)
+            bool allRequiredFieldsFilled =
+                PlayerNameCombo.SelectedItem != null &&
+                !string.IsNullOrWhiteSpace(HcpTextBox.Text) &&
+                !string.IsNullOrWhiteSpace(ResultTextBox.Text) &&
+                !string.IsNullOrWhiteSpace(PositionTextBox.Text);
+
+            // If on a blank/new entry, enable only if all required fields are filled
             if (_originalResultRecord == null || string.IsNullOrWhiteSpace(_originalResultRecord.PlayerName))
             {
-                UpdateResultButton.IsEnabled = true;
+                UpdateResultButton.IsEnabled = allRequiredFieldsFilled;
                 return;
             }
 
-            // For existing entries, only enable if data has changed
+            // For existing entries, check if data has changed AND all required fields are filled
             bool hasChanged =
                 PlayerNameCombo.SelectedItem?.ToString() != _originalResultRecord.PlayerName ||
                 PartnerCombo.SelectedItem?.ToString() != _originalResultRecord.Partner ||
@@ -359,7 +382,7 @@ namespace GolfApp1
                 ResultTextBox.Text?.Trim() != _originalResultRecord.Result.ToString() ||
                 PositionTextBox.Text?.Trim() != _originalResultRecord.Position.ToString();
 
-            UpdateResultButton.IsEnabled = hasChanged;
+            UpdateResultButton.IsEnabled = hasChanged && allRequiredFieldsFilled;
         }
 
         // Hook into field change events to update button state
@@ -388,6 +411,7 @@ namespace GolfApp1
             rec = CreateEmptyResultFromHeader();
             errorMessage = string.Empty;
 
+            // Validate all required fields (Partner is optional)
             if (PlayerNameCombo.SelectedItem is null)
             {
                 errorMessage = "Select player name.";
@@ -395,13 +419,20 @@ namespace GolfApp1
             }
             rec.PlayerName = PlayerNameCombo.SelectedItem.ToString() ?? string.Empty;
 
-            // FIXED: Partner is now OPTIONAL - only validate if selected
+            // Partner is OPTIONAL - only validate if selected
             rec.Partner = PartnerCombo.SelectedItem?.ToString() ?? string.Empty;
 
             // Only check for same player/partner if partner is actually selected
             if (!string.IsNullOrWhiteSpace(rec.Partner) && rec.Partner == rec.PlayerName)
             {
                 errorMessage = "Partner must be different from player.";
+                return false;
+            }
+
+            // Check HCP is not empty
+            if (string.IsNullOrWhiteSpace(HcpTextBox.Text?.Trim()))
+            {
+                errorMessage = "HCP is required.";
                 return false;
             }
 
@@ -412,12 +443,26 @@ namespace GolfApp1
             }
             rec.Hcp = hcp;
 
+            // Check Result is not empty
+            if (string.IsNullOrWhiteSpace(ResultTextBox.Text?.Trim()))
+            {
+                errorMessage = "Result is required.";
+                return false;
+            }
+
             if (!int.TryParse(ResultTextBox.Text?.Trim(), out var res) || res < 0 || res > 50)
             {
                 errorMessage = "Result must be an integer 0..50.";
                 return false;
             }
             rec.Result = res;
+
+            // Check Position is not empty
+            if (string.IsNullOrWhiteSpace(PositionTextBox.Text?.Trim()))
+            {
+                errorMessage = "Position is required.";
+                return false;
+            }
 
             if (!int.TryParse(PositionTextBox.Text?.Trim(), out var pos) || pos < 0 || pos > 8)
             {
