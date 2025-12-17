@@ -340,6 +340,13 @@ namespace GolfApp1
                 PositionTextBox.Text = string.Empty;
             }
 
+            // Update all button states
+            UpdateNavigationButtonStates();
+        }
+
+        // FIX: Separate method to update navigation button states
+        private void UpdateNavigationButtonStates()
+        {
             // Count filled entries for button state
             var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
 
@@ -347,10 +354,18 @@ namespace GolfApp1
             // Previous: Disabled only at first player (index 0)
             PrevResultButton.IsEnabled = _resultIndex > 0;
 
-            // Next: Disabled only when we have 8 filled players (can't add more)
-            NextResultButton.IsEnabled = filledCount < 8;
+            // FIX #2: Next button depends on whether required fields are filled
+            // Check if all required fields are filled (Partner is optional)
+            bool currentFieldsValid =
+                PlayerNameCombo.SelectedItem != null &&
+                !string.IsNullOrWhiteSpace(HcpTextBox.Text) &&
+                !string.IsNullOrWhiteSpace(ResultTextBox.Text) &&
+                !string.IsNullOrWhiteSpace(PositionTextBox.Text);
 
-            // Enable Update and Next buttons based on required fields
+            // Next: Disabled if we have 8 filled players OR if current entry has empty required fields
+            NextResultButton.IsEnabled = (filledCount < 8) && currentFieldsValid;
+
+            // Enable Update button based on required fields and changes
             UpdateResultButtonState();
 
             // Always enable Delete button (even for empty entries - will remove from buffer)
@@ -385,10 +400,10 @@ namespace GolfApp1
             UpdateResultButton.IsEnabled = hasChanged && allRequiredFieldsFilled;
         }
 
-        // Hook into field change events to update button state
+        // FIX: Hook into field change events to update ALL button states, not just Update
         private void OnResultFieldChanged(object sender, object e)
         {
-            UpdateResultButtonState();
+            UpdateNavigationButtonStates();
         }
 
         private ResultRecord CreateEmptyResultFromHeader()
