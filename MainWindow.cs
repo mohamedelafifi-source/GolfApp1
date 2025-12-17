@@ -17,6 +17,9 @@ namespace GolfApp1
         private readonly List<ResultRecord> _resultBuffer = new();
         private int _resultIndex = -1;
 
+        // Track original values for change detection
+        private ResultRecord? _originalResultRecord = null;
+
         // Proceed: load any existing results for date/club/venue and show entry panel.
         private async void OnProceedResultsClicked(object sender, RoutedEventArgs e)
         {
@@ -91,30 +94,26 @@ namespace GolfApp1
         private void OnPrevResultClicked(object sender, RoutedEventArgs e)
         {
             if (_resultBuffer.Count == 0) return;
-            if (_resultIndex > 0) _resultIndex--;
-            PopulateResultFields();
+            if (_resultIndex > 0)
+            {
+                _resultIndex--;
+                PopulateResultFields();
+            }
         }
 
         private void OnNextResultClicked(object sender, RoutedEventArgs e)
         {
             if (_resultBuffer.Count == 0)
             {
-                UpdateStatus("No entries available. Create a new entry with Update.");
-                return;
-            }
-
-            var start = Math.Max(_resultIndex + 1, 0);
-
-            // 1) prefer next empty record
-            var nextEmpty = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName));
-            if (nextEmpty >= 0)
-            {
-                _resultIndex = nextEmpty;
+                // Create a new empty entry if buffer is empty
+                _resultBuffer.Add(CreateEmptyResultFromHeader());
+                _resultIndex = 0;
                 PopulateResultFields();
+                UpdateStatus("Created new empty entry.");
                 return;
             }
 
-            // 2) otherwise move to next existing record if available
+            // Move to next record (or create new one if at end)
             if (_resultIndex < _resultBuffer.Count - 1)
             {
                 _resultIndex++;
@@ -122,7 +121,11 @@ namespace GolfApp1
             }
             else
             {
-                UpdateStatus("No next record.");
+                // At the end - add a new empty entry
+                _resultBuffer.Add(CreateEmptyResultFromHeader());
+                _resultIndex = _resultBuffer.Count - 1;
+                PopulateResultFields();
+                UpdateStatus("Created new empty entry.");
             }
         }
 
@@ -180,8 +183,26 @@ namespace GolfApp1
                     _resultIndex = _resultBuffer.Count - 1;
                 }
 
-                PopulateResultFields();
                 UpdateStatus($"Saved result for '{rec.PlayerName}'.");
+
+                // FIX #1: After saving, navigate to next empty slot or create new one
+                var nextEmptyIndex = _resultBuffer.FindIndex(_resultIndex + 1, r => string.IsNullOrWhiteSpace(r.PlayerName));
+
+                if (nextEmptyIndex >= 0)
+                {
+                    // Found an existing empty slot
+                    _resultIndex = nextEmptyIndex;
+                    PopulateResultFields();
+                    UpdateStatus($"Saved result. Moved to next empty slot.");
+                }
+                else
+                {
+                    // No empty slot found - create new one at the end
+                    _resultBuffer.Add(CreateEmptyResultFromHeader());
+                    _resultIndex = _resultBuffer.Count - 1;
+                    PopulateResultFields();
+                    UpdateStatus($"Saved result. Created new empty entry.");
+                }
             }
             catch (Exception ex)
             {
@@ -208,8 +229,16 @@ namespace GolfApp1
                 }
 
                 _resultBuffer.RemoveAt(_resultIndex);
-                if (_resultBuffer.Count == 0) _resultIndex = -1;
-                else if (_resultIndex >= _resultBuffer.Count) _resultIndex = _resultBuffer.Count - 1;
+                if (_resultBuffer.Count == 0)
+                {
+                    // Buffer is empty - add a new blank entry
+                    _resultBuffer.Add(CreateEmptyResultFromHeader());
+                    _resultIndex = 0;
+                }
+                else if (_resultIndex >= _resultBuffer.Count)
+                {
+                    _resultIndex = _resultBuffer.Count - 1;
+                }
 
                 PopulateResultFields();
                 UpdateStatus("Deleted entry.");
@@ -225,14 +254,38 @@ namespace GolfApp1
             if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
             {
                 var r = _resultBuffer[_resultIndex];
-                PlayerNameCombo.SelectedItem = r.PlayerName;
-                PartnerCombo.SelectedItem = r.Partner;
-                HcpTextBox.Text = r.Hcp.ToString();
-                ResultTextBox.Text = r.Result.ToString();
-                PositionTextBox.Text = r.Position.ToString();
+
+                // Store original values for change detection
+                _originalResultRecord = new ResultRecord
+                {
+                    PlayerName = r.PlayerName,
+                    Partner = r.Partner,
+                    Hcp = r.Hcp,
+                    Result = r.Result,
+                    Position = r.Position
+                };
+
+                // FIX #1: Clear selection first, then set value (prevents showing previous value on empty entries)
+                PlayerNameCombo.SelectedIndex = -1;
+                PartnerCombo.SelectedIndex = -1;
+
+                if (!string.IsNullOrWhiteSpace(r.PlayerName))
+                {
+                    PlayerNameCombo.SelectedItem = r.PlayerName;
+                }
+
+                if (!string.IsNullOrWhiteSpace(r.Partner))
+                {
+                    PartnerCombo.SelectedItem = r.Partner;
+                }
+
+                HcpTextBox.Text = r.Hcp == 0 && string.IsNullOrWhiteSpace(r.PlayerName) ? string.Empty : r.Hcp.ToString();
+                ResultTextBox.Text = r.Result == 0 && string.IsNullOrWhiteSpace(r.PlayerName) ? string.Empty : r.Result.ToString();
+                PositionTextBox.Text = r.Position == 0 && string.IsNullOrWhiteSpace(r.PlayerName) ? string.Empty : r.Position.ToString();
             }
             else
             {
+                _originalResultRecord = null;
                 PlayerNameCombo.SelectedIndex = -1;
                 PartnerCombo.SelectedIndex = -1;
                 HcpTextBox.Text = string.Empty;
@@ -240,25 +293,51 @@ namespace GolfApp1
                 PositionTextBox.Text = string.Empty;
             }
 
+            // Enable Prev/Next buttons based on buffer state
             PrevResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex > 0;
+            NextResultButton.IsEnabled = true; // Always enabled - will create new entry if needed
 
-            // Enable Next if there is either a next empty or a next existing record
-            var start = Math.Max(_resultIndex + 1, 0);
-            var hasNextEmpty = _resultBuffer.FindIndex(start, r => string.IsNullOrWhiteSpace(r.PlayerName)) >= 0;
-            var hasNextRecord = _resultIndex < _resultBuffer.Count - 1;
-            NextResultButton.IsEnabled = hasNextEmpty || hasNextRecord;
+            // Enable Update button based on whether data has changed
+            UpdateResultButtonState();
 
-            UpdateResultButton.IsEnabled = _resultBuffer.Count >= 0; // allow saving even for blank
+            // FIX #2: Always enable Delete button (even for empty entries - will remove from buffer)
             DeleteResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex >= 0;
+        }
+
+        // Check if current data differs from original
+        private void UpdateResultButtonState()
+        {
+            // Always enable if we're on a blank/new entry
+            if (_originalResultRecord == null || string.IsNullOrWhiteSpace(_originalResultRecord.PlayerName))
+            {
+                UpdateResultButton.IsEnabled = true;
+                return;
+            }
+
+            // For existing entries, only enable if data has changed
+            bool hasChanged =
+                PlayerNameCombo.SelectedItem?.ToString() != _originalResultRecord.PlayerName ||
+                PartnerCombo.SelectedItem?.ToString() != _originalResultRecord.Partner ||
+                HcpTextBox.Text?.Trim() != _originalResultRecord.Hcp.ToString() ||
+                ResultTextBox.Text?.Trim() != _originalResultRecord.Result.ToString() ||
+                PositionTextBox.Text?.Trim() != _originalResultRecord.Position.ToString();
+
+            UpdateResultButton.IsEnabled = hasChanged;
+        }
+
+        // Hook into field change events to update button state
+        private void OnResultFieldChanged(object sender, object e)
+        {
+            UpdateResultButtonState();
         }
 
         private ResultRecord CreateEmptyResultFromHeader()
         {
             return new ResultRecord
             {
-                Date = ResultsDatePicker.Date.Date,
-                Club = ResultsClubCombo.SelectedItem?.ToString() ?? string.Empty,
-                Venue = ResultsVenueCombo.SelectedItem?.ToString() ?? string.Empty,
+                Date = ResultsDatePicker?.Date.Date ?? _currentResultsDate ?? DateTime.Now.Date,
+                Club = ResultsClubCombo?.SelectedItem?.ToString() ?? _currentResultsClub ?? string.Empty,
+                Venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? _currentResultsVenue ?? string.Empty,
                 PlayerName = string.Empty,
                 Partner = string.Empty,
                 Hcp = 0,

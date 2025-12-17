@@ -107,29 +107,29 @@
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="Player Name" />
-                            <ComboBox x:Name="PlayerNameCombo" Width="300" />
+                            <ComboBox x:Name="PlayerNameCombo" Width="300" SelectionChanged="OnResultFieldChanged" />
                         </StackPanel>
 
                         <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="Partner" />
-                            <ComboBox x:Name="PartnerCombo" Width="300" />
+                            <ComboBox x:Name="PartnerCombo" Width="300" SelectionChanged="OnResultFieldChanged" />
                         </StackPanel>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="HCP" />
-                            <TextBox x:Name="HcpTextBox" Width="120" PlaceholderText="0-40" />
+                            <TextBox x:Name="HcpTextBox" Width="120" PlaceholderText="0-40" TextChanged="OnResultFieldChanged" />
                         </StackPanel>
 
                         <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="Result" />
-                            <TextBox x:Name="ResultTextBox" Width="120" PlaceholderText="0-50" />
+                            <TextBox x:Name="ResultTextBox" Width="120" PlaceholderText="0-50" TextChanged="OnResultFieldChanged" />
                         </StackPanel>
 
                         <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="Position" />
-                            <TextBox x:Name="PositionTextBox" Width="120" PlaceholderText="0-8" />
+                            <TextBox x:Name="PositionTextBox" Width="120" PlaceholderText="0-8" TextChanged="OnResultFieldChanged" />
                         </StackPanel>
                     </StackPanel>
 

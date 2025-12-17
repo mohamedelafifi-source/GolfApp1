@@ -36,14 +36,20 @@ namespace GolfApp1
                 // Load players using ViewModel
                 await _vm.LoadPlayersAsync(clubShort);
 
-                // Populate Player and Partner ComboBoxes
+                // FIX #3: Sort player names alphabetically before populating ComboBoxes
+                var sortedPlayerNames = _vm.Players
+                    .Select(p => p.Name)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                // Populate Player and Partner ComboBoxes with sorted names
                 if (PlayerNameCombo is not null)
                 {
-                    PlayerNameCombo.ItemsSource = _vm.Players.Select(p => p.Name).ToList();
+                    PlayerNameCombo.ItemsSource = sortedPlayerNames;
                 }
                 if (PartnerCombo is not null)
                 {
-                    PartnerCombo.ItemsSource = _vm.Players.Select(p => p.Name).ToList();
+                    PartnerCombo.ItemsSource = sortedPlayerNames;
                 }
 
                 UpdateStatus($"Loaded {_vm.Players.Count} players for club '{clubShort}'.");
