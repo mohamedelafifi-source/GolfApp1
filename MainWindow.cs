@@ -68,11 +68,11 @@ namespace GolfApp1
                 }
                 else
                 {
-                    // no results yet . start with a single blank entry
+                    // no results yet - start with a single blank entry
                     _resultBuffer.Add(CreateEmptyResultFromHeader());
                     _resultIndex = 0;
                     PopulateResultFields();
-                    UpdateStatus("No existing results found ready to enter new result");
+                    UpdateStatus("No existing results found - ready to enter new result");
                 }
 
                 ResultsEntryPanel.Visibility = Visibility.Visible;
@@ -101,44 +101,39 @@ namespace GolfApp1
 
         private void OnNextResultClicked(object sender, RoutedEventArgs e)
         {
-            // Count filled entries (non-empty PlayerName)
+            // FIRST: Check if we can navigate to an existing next record
+            if (_resultIndex < _resultBuffer.Count - 1)
+            {
+                _resultIndex++;
+                PopulateResultFields();
+                return; // Successfully moved to next existing record
+            }
+
+            // ONLY if we're at the end, check if we can add a new entry
+            // Check BOTH buffer count and filled count
             var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
 
-            // If we already have 8 filled entries, cannot add more
-            if (filledCount >= 8)
+            if (_resultBuffer.Count >= 8 || filledCount >= 8)
             {
                 UpdateStatus("Cannot add more entries: Maximum of 8 entries reached.");
                 return;
             }
 
-            // Move to next record if exists
-            if (_resultIndex < _resultBuffer.Count - 1)
-            {
-                _resultIndex++;
-                PopulateResultFields();
-            }
-            else
-            {
-                // At the end - create new empty entry (only if less than 8 filled)
-                _resultBuffer.Add(CreateEmptyResultFromHeader());
-                _resultIndex = _resultBuffer.Count - 1;
-                PopulateResultFields();
-                UpdateStatus("Created new empty entry.");
-            }
+            // At the end and less than 8 - create new empty entry
+            _resultBuffer.Add(CreateEmptyResultFromHeader());
+            _resultIndex = _resultBuffer.Count - 1;
+            PopulateResultFields();
+            UpdateStatus("Created new empty entry.");
         }
 
         // Update (save) current entry into DB
         private async void OnUpdateResultClicked(object sender, RoutedEventArgs e)
         {
-            UpdateStatus("Starting save operation...");
-
             if (!TryBuildCurrentEntry(out var rec, out var error))
             {
                 UpdateStatus($"Validation failed: {error}");
                 return;
             }
-
-            UpdateStatus($"Building record for player: {rec.PlayerName}, Venue: {rec.Venue}, Date: {rec.Date:yyyy-MM-dd}, Club: {rec.Club}");
 
             // preserve Id if we're editing an existing buffer entry
             if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
@@ -151,73 +146,48 @@ namespace GolfApp1
                 rec.Id = Guid.NewGuid().ToString();
             }
 
-            UpdateStatus($"Record ID: {rec.Id}");
-
             // set PlayerId / PartnerId if available from VM
             if (_vm is not null)
             {
                 var p = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
-                if (p is not null)
-                {
-                    rec.PlayerId = p.Id;
-                    UpdateStatus($"Found player ID: {rec.PlayerId}");
-                }
-                else
-                {
-                    UpdateStatus($"Warning: Could not find player ID for '{rec.PlayerName}'");
-                }
+                if (p is not null) rec.PlayerId = p.Id;
 
                 // Only look up partner if partner name is provided
                 if (!string.IsNullOrWhiteSpace(rec.Partner))
                 {
                     var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
-                    if (q is not null)
-                    {
-                        rec.PartnerId = q.Id;
-                        UpdateStatus($"Found partner ID: {rec.PartnerId}");
-                    }
-                    else
-                    {
-                        UpdateStatus($"Warning: Could not find partner ID for '{rec.Partner}'");
-                    }
+                    if (q is not null) rec.PartnerId = q.Id;
                 }
             }
 
             if (_db is null)
             {
-                UpdateStatus("CRITICAL: Database not initialized.");
-                await ShowErrorAsync("Database Error", "Database is not initialized. Cannot save results.");
+                UpdateStatus("Database not initialized.");
                 return;
             }
 
             try
             {
-                UpdateStatus("Calling database UpsertResultAsync...");
                 var err = await _db.UpsertResultAsync(rec);
 
                 if (err != null)
                 {
-                    UpdateStatus($"Database save failed: {err}");
-                    await ShowErrorAsync("Save Failed", $"Database error: {err}");
+                    UpdateStatus($"Save failed: {err}");
                     return;
                 }
-
-                UpdateStatus("Database save successful!");
 
                 // update buffer
                 if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
                 {
                     _resultBuffer[_resultIndex] = rec;
-                    UpdateStatus("Updated existing buffer entry.");
                 }
                 else
                 {
                     _resultBuffer.Add(rec);
                     _resultIndex = _resultBuffer.Count - 1;
-                    UpdateStatus("Added new buffer entry.");
                 }
 
-                UpdateStatus($"✓ Saved result for '{rec.PlayerName}' to database.");
+                UpdateStatus($"Saved result for '{rec.PlayerName}'.");
 
                 // After saving, navigate to next empty slot or create new one (respecting 8 entry limit)
                 var nextEmptyIndex = _resultBuffer.FindIndex(_resultIndex + 1, r => string.IsNullOrWhiteSpace(r.PlayerName));
@@ -227,33 +197,30 @@ namespace GolfApp1
                     // Found an existing empty slot
                     _resultIndex = nextEmptyIndex;
                     PopulateResultFields();
-                    UpdateStatus($"✓ Saved. Moved to next empty slot (index {_resultIndex}).");
                 }
                 else
                 {
-                    // No empty slot found check if we can add more (limit of 8 filled entries)
+                    // No empty slot found - check if we can add more (limit of 8 filled entries)
                     var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
 
-                    if (filledCount < 8)
+                    if (filledCount < 8 && _resultBuffer.Count < 8)
                     {
                         // Create new one at the end
                         _resultBuffer.Add(CreateEmptyResultFromHeader());
                         _resultIndex = _resultBuffer.Count - 1;
                         PopulateResultFields();
-                        UpdateStatus($"✓ Saved. Created new empty entry (index {_resultIndex}).");
                     }
                     else
                     {
-                        // Maximum reached stay on current entry
-                        UpdateStatus($"✓ Saved. Maximum of 8 entries reached.");
+                        // Maximum reached - stay on current entry
+                        UpdateStatus("Maximum of 8 entries reached.");
                         PopulateResultFields();
                     }
                 }
             }
             catch (Exception ex)
             {
-                UpdateStatus($"EXCEPTION during save: {ex.Message}");
-                await ShowErrorAsync("Save Exception", $"An error occurred while saving:\n\n{ex.Message}\n\nStack trace:\n{ex.StackTrace}");
+                UpdateStatus($"Save failed: {ex.Message}");
             }
         }
 
@@ -344,26 +311,20 @@ namespace GolfApp1
             UpdateNavigationButtonStates();
         }
 
-        // FIX: Separate method to update navigation button states
         private void UpdateNavigationButtonStates()
         {
             // Count filled entries for button state
             var filledCount = _resultBuffer.Count(r => !string.IsNullOrWhiteSpace(r.PlayerName));
 
-            // SIMPLIFIED LOGIC FOR PREV/NEXT BUTTONS:
-            // Previous: Disabled only at first player (index 0)
+            // Previous: Disabled ONLY if at index 0
             PrevResultButton.IsEnabled = _resultIndex > 0;
 
-            // FIX #2: Next button depends on whether required fields are filled
-            // Check if all required fields are filled (Partner is optional)
-            bool currentFieldsValid =
-                PlayerNameCombo.SelectedItem != null &&
-                !string.IsNullOrWhiteSpace(HcpTextBox.Text) &&
-                !string.IsNullOrWhiteSpace(ResultTextBox.Text) &&
-                !string.IsNullOrWhiteSpace(PositionTextBox.Text);
+            // Next: Enabled if we can navigate to next existing record OR (at end AND can add more)
+            bool hasMoreRecords = _resultIndex < _resultBuffer.Count - 1;
+            bool atEnd = _resultIndex == _resultBuffer.Count - 1;
+            bool cannotAddMore = (_resultBuffer.Count >= 8) || (filledCount >= 8);
 
-            // Next: Disabled if we have 8 filled players OR if current entry has empty required fields
-            NextResultButton.IsEnabled = (filledCount < 8) && currentFieldsValid;
+            NextResultButton.IsEnabled = hasMoreRecords || (atEnd && !cannotAddMore);
 
             // Enable Update button based on required fields and changes
             UpdateResultButtonState();
@@ -400,7 +361,7 @@ namespace GolfApp1
             UpdateResultButton.IsEnabled = hasChanged && allRequiredFieldsFilled;
         }
 
-        // FIX: Hook into field change events to update ALL button states, not just Update
+        // Hook into field change events to update ALL button states
         private void OnResultFieldChanged(object sender, object e)
         {
             UpdateNavigationButtonStates();
@@ -408,9 +369,23 @@ namespace GolfApp1
 
         private ResultRecord CreateEmptyResultFromHeader()
         {
+            DateTime useDate;
+            if (_currentResultsDate.HasValue)
+            {
+                useDate = _currentResultsDate.Value;
+            }
+            else if (ResultsDatePicker?.Date != null && ResultsDatePicker.Date != DateTimeOffset.MinValue)
+            {
+                useDate = ResultsDatePicker.Date.Date;
+            }
+            else
+            {
+                useDate = DateTime.Now.Date;
+            }
+
             return new ResultRecord
             {
-                Date = ResultsDatePicker?.Date.Date ?? _currentResultsDate ?? DateTime.Now.Date,
+                Date = useDate,
                 Club = ResultsClubCombo?.SelectedItem?.ToString() ?? _currentResultsClub ?? string.Empty,
                 Venue = ResultsVenueCombo?.SelectedItem?.ToString() ?? _currentResultsVenue ?? string.Empty,
                 PlayerName = string.Empty,
