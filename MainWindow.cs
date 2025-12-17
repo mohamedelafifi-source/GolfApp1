@@ -132,60 +132,96 @@ namespace GolfApp1
         // Update (save) current entry into DB
         private async void OnUpdateResultClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus("Starting save operation...");
+
             if (!TryBuildCurrentEntry(out var rec, out var error))
             {
-                UpdateStatus(error);
+                UpdateStatus($"Validation failed: {error}");
                 return;
             }
+
+            UpdateStatus($"Building record for player: {rec.PlayerName}, Venue: {rec.Venue}, Date: {rec.Date:yyyy-MM-dd}, Club: {rec.Club}");
 
             // preserve Id if we're editing an existing buffer entry
             if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
             {
                 rec.Id = _resultBuffer[_resultIndex].Id ?? string.Empty;
             }
-            else
+
+            if (string.IsNullOrEmpty(rec.Id))
             {
                 rec.Id = Guid.NewGuid().ToString();
             }
+
+            UpdateStatus($"Record ID: {rec.Id}");
 
             // set PlayerId / PartnerId if available from VM
             if (_vm is not null)
             {
                 var p = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.PlayerName, StringComparison.Ordinal));
-                if (p is not null) rec.PlayerId = p.Id;
-                var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
-                if (q is not null) rec.PartnerId = q.Id;
+                if (p is not null)
+                {
+                    rec.PlayerId = p.Id;
+                    UpdateStatus($"Found player ID: {rec.PlayerId}");
+                }
+                else
+                {
+                    UpdateStatus($"Warning: Could not find player ID for '{rec.PlayerName}'");
+                }
+
+                // Only look up partner if partner name is provided
+                if (!string.IsNullOrWhiteSpace(rec.Partner))
+                {
+                    var q = _vm.Players.FirstOrDefault(x => string.Equals(x.Name, rec.Partner, StringComparison.Ordinal));
+                    if (q is not null)
+                    {
+                        rec.PartnerId = q.Id;
+                        UpdateStatus($"Found partner ID: {rec.PartnerId}");
+                    }
+                    else
+                    {
+                        UpdateStatus($"Warning: Could not find partner ID for '{rec.Partner}'");
+                    }
+                }
             }
 
             if (_db is null)
             {
-                UpdateStatus("Database not initialized.");
+                UpdateStatus("CRITICAL: Database not initialized.");
+                await ShowErrorAsync("Database Error", "Database is not initialized. Cannot save results.");
                 return;
             }
 
             try
             {
-                var err = await _db.UpsertResultAsync(rec).ConfigureAwait(true);
+                UpdateStatus("Calling database UpsertResultAsync...");
+                var err = await _db.UpsertResultAsync(rec);
+
                 if (err != null)
                 {
-                    UpdateStatus("Save failed: " + err);
+                    UpdateStatus($"Database save failed: {err}");
+                    await ShowErrorAsync("Save Failed", $"Database error: {err}");
                     return;
                 }
+
+                UpdateStatus("Database save successful!");
 
                 // update buffer
                 if (_resultIndex >= 0 && _resultIndex < _resultBuffer.Count)
                 {
                     _resultBuffer[_resultIndex] = rec;
+                    UpdateStatus("Updated existing buffer entry.");
                 }
                 else
                 {
                     _resultBuffer.Add(rec);
                     _resultIndex = _resultBuffer.Count - 1;
+                    UpdateStatus("Added new buffer entry.");
                 }
 
-                UpdateStatus($"Saved result for '{rec.PlayerName}'.");
+                UpdateStatus($"? Saved result for '{rec.PlayerName}' to database.");
 
-                // FIX #1: After saving, navigate to next empty slot or create new one
+                // After saving, navigate to next empty slot or create new one
                 var nextEmptyIndex = _resultBuffer.FindIndex(_resultIndex + 1, r => string.IsNullOrWhiteSpace(r.PlayerName));
 
                 if (nextEmptyIndex >= 0)
@@ -193,7 +229,7 @@ namespace GolfApp1
                     // Found an existing empty slot
                     _resultIndex = nextEmptyIndex;
                     PopulateResultFields();
-                    UpdateStatus($"Saved result. Moved to next empty slot.");
+                    UpdateStatus($"? Saved. Moved to next empty slot (index {_resultIndex}).");
                 }
                 else
                 {
@@ -201,12 +237,13 @@ namespace GolfApp1
                     _resultBuffer.Add(CreateEmptyResultFromHeader());
                     _resultIndex = _resultBuffer.Count - 1;
                     PopulateResultFields();
-                    UpdateStatus($"Saved result. Created new empty entry.");
+                    UpdateStatus($"? Saved. Created new empty entry (index {_resultIndex}).");
                 }
             }
             catch (Exception ex)
             {
-                UpdateStatus("Save failed: " + ex.Message);
+                UpdateStatus($"EXCEPTION during save: {ex.Message}");
+                await ShowErrorAsync("Save Exception", $"An error occurred while saving:\n\n{ex.Message}\n\nStack trace:\n{ex.StackTrace}");
             }
         }
 
@@ -265,7 +302,7 @@ namespace GolfApp1
                     Position = r.Position
                 };
 
-                // FIX #1: Clear selection first, then set value (prevents showing previous value on empty entries)
+                // Clear selection first, then set value (prevents showing previous value on empty entries)
                 PlayerNameCombo.SelectedIndex = -1;
                 PartnerCombo.SelectedIndex = -1;
 
@@ -300,7 +337,7 @@ namespace GolfApp1
             // Enable Update button based on whether data has changed
             UpdateResultButtonState();
 
-            // FIX #2: Always enable Delete button (even for empty entries - will remove from buffer)
+            // Always enable Delete button (even for empty entries - will remove from buffer)
             DeleteResultButton.IsEnabled = _resultBuffer.Count > 0 && _resultIndex >= 0;
         }
 
@@ -358,14 +395,11 @@ namespace GolfApp1
             }
             rec.PlayerName = PlayerNameCombo.SelectedItem.ToString() ?? string.Empty;
 
-            if (PartnerCombo.SelectedItem is null)
-            {
-                errorMessage = "Select partner name.";
-                return false;
-            }
-            rec.Partner = PartnerCombo.SelectedItem.ToString() ?? string.Empty;
+            // FIXED: Partner is now OPTIONAL - only validate if selected
+            rec.Partner = PartnerCombo.SelectedItem?.ToString() ?? string.Empty;
 
-            if (rec.Partner == rec.PlayerName)
+            // Only check for same player/partner if partner is actually selected
+            if (!string.IsNullOrWhiteSpace(rec.Partner) && rec.Partner == rec.PlayerName)
             {
                 errorMessage = "Partner must be different from player.";
                 return false;
