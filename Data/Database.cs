@@ -745,5 +745,74 @@ ORDER BY Position, PlayerName;";
             _conn?.Dispose();
             _conn = null;
         }
+        /// <summary>
+        /// Clean database by removing invalid entries (missing venues, bad dates, duplicates).
+        /// Returns a tuple with (success, error message, count of removed entries).
+        /// </summary>
+        public async Task<(bool Success, string? Error, int RemovedCount)> CleanDatabaseAsync()
+        {
+            if (_conn is null) return (false, "Database not initialized.", 0);
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                int totalRemoved = 0;
+
+                // Step 1: Delete entries with missing venues
+                using (var cmd1 = _conn.CreateCommand())
+                {
+                    cmd1.Transaction = tran;
+                    cmd1.CommandText = "DELETE FROM Results WHERE Venue IS NULL OR Venue = '';";
+                    var deleted1 = await cmd1.ExecuteNonQueryAsync();
+                    totalRemoved += deleted1;
+                }
+
+                // Step 2: Delete entries with invalid dates (year < 2020, which includes DateTime.MinValue = 1601)
+                using (var cmd2 = _conn.CreateCommand())
+                {
+                    cmd2.Transaction = tran;
+                    cmd2.CommandText = "DELETE FROM Results WHERE Date < '2020-01-01' OR Date IS NULL;";
+                    var deleted2 = await cmd2.ExecuteNonQueryAsync();
+                    totalRemoved += deleted2;
+                }
+
+                // Step 3: Delete entries with missing player names
+                using (var cmd3 = _conn.CreateCommand())
+                {
+                    cmd3.Transaction = tran;
+                    cmd3.CommandText = "DELETE FROM Results WHERE PlayerName IS NULL OR PlayerName = '';";
+                    var deleted3 = await cmd3.ExecuteNonQueryAsync();
+                    totalRemoved += deleted3;
+                }
+
+                // Step 4: Remove duplicate entries (keep only the first occurrence based on Id)
+                // Find duplicates based on PlayerId, Date, Venue, Club
+                using (var cmd4 = _conn.CreateCommand())
+                {
+                    cmd4.Transaction = tran;
+                    cmd4.CommandText = @"
+DELETE FROM Results
+WHERE Id NOT IN (
+    SELECT MIN(Id)
+    FROM Results
+    WHERE PlayerId IS NOT NULL AND PlayerId != ''
+    GROUP BY PlayerId, Date, Venue, ClubShortName
+);";
+                    var deleted4 = await cmd4.ExecuteNonQueryAsync();
+                    totalRemoved += deleted4;
+                }
+
+                await tran.CommitAsync();
+                return (true, null, totalRemoved);
+            }
+            catch (SqliteException ex)
+            {
+                return (false, ex.Message, 0);
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message, 0);
+            }
+        }
     }
 }

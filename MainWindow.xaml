@@ -28,6 +28,8 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Backup Database" Click="OnBackupDatabaseClicked" />
                         <MenuFlyoutItem Text="Restore Database" Click="OnRestoreDatabaseClicked" />
+                        <MenuFlyoutItem Text="Clean Database" Click="OnCleanDatabaseClicked" />
+                        
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
                     </MenuFlyout>
@@ -49,7 +51,7 @@
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="By Club" Click="OnReportByClubClicked" />
-                        <MenuFlyoutItem Text="By Player" Click="OnReportByPlayerClicked" />
+                        <MenuFlyoutItem Text="All Players" Click="OnReportByPlayerClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>

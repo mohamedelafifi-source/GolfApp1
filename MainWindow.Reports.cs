@@ -427,7 +427,7 @@ namespace GolfApp1
                 InitializeWithWindow.Initialize(savePicker, WindowNative.GetWindowHandle(this));
                 savePicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
                 savePicker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
-                savePicker.SuggedFileName = $"{suggestedFileName}_{DateTime.Now:yyyyMMdd_HHmmss}";
+                savePicker.SuggestedFileName = $"{suggestedFileName}_{DateTime.Now:yyyyMMdd_HHmmss}";
 
                 var file = await savePicker.PickSaveFileAsync().AsTask();
                 if (file != null)
