@@ -47,14 +47,17 @@
                 </Button.Flyout>
             </Button>
 
+
             <Button Content="Reports">
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="By Club" Click="OnReportByClubClicked" />
                         <MenuFlyoutItem Text="All Players" Click="OnReportByPlayerClicked" />
+                        <MenuFlyoutItem Text="By Averages" Click="OnReportByAveragesClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
+            
         </StackPanel>
 
         <!-- Row 1: EditorArea (club editor) + ResultsArea (enter results). Both children of the same row -->

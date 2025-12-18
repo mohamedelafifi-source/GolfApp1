@@ -233,6 +233,7 @@ namespace GolfApp1
             }
         }
 
+        
         private async Task<string?> ShowVenueSelectionForReportAsync(List<string> venues)
         {
             var comboBox = new ComboBox
@@ -419,6 +420,153 @@ namespace GolfApp1
             return csv.ToString();
         }
 
+        private string GenerateAveragesReportCsv(List<dynamic> playerStats)
+        {
+            var csv = new StringBuilder();
+
+            // Header with report information
+            csv.AppendLine("Player Averages Report - Sorted by Average Points");
+            csv.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            csv.AppendLine($"Total Players: {playerStats.Count}");
+            csv.AppendLine();
+
+            // CSV column headers
+            csv.AppendLine("Player Name,Club,Total Points,Games Played,Average Points");
+
+            // Data rows
+            foreach (var stat in playerStats)
+            {
+                var playerName = CsvEscape(stat.PlayerName ?? string.Empty);
+                var club = CsvEscape(stat.ClubShort ?? string.Empty);
+                var totalPoints = stat.TotalPoints.ToString();
+                var gamesPlayed = stat.GamesPlayed.ToString();
+                var averagePoints = stat.AveragePoints.ToString("F2", CultureInfo.InvariantCulture);
+
+                csv.AppendLine($"{playerName},{club},{totalPoints},{gamesPlayed},{averagePoints}");
+            }
+
+            return csv.ToString();
+        }
+
+        //=====
+        private async void OnReportByAveragesClicked(object sender, RoutedEventArgs e)
+        {
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await ShowErrorAsync("Report Error", "Database not initialized.");
+                return;
+            }
+
+            try
+            {
+                UpdateStatus("Generating averages report...");
+
+                // Get all clubs
+                var clubs = await _db.GetAllClubsAsync();
+                if (clubs == null || clubs.Count == 0)
+                {
+                    UpdateStatus("No clubs found in database.");
+                    await ShowErrorAsync("Report - By Averages", "No clubs found in the database.");
+                    return;
+                }
+
+                // Gather all results from all clubs (all venues, all dates)
+                var allResults = new List<ResultRecord>();
+                foreach (var club in clubs)
+                {
+                    var clubResults = await _db.GetResultsAsync(club.ShortName);
+                    if (clubResults != null)
+                    {
+                        allResults.AddRange(clubResults);
+                    }
+                }
+
+                if (allResults.Count == 0)
+                {
+                    UpdateStatus("No results found in database.");
+                    await ShowErrorAsync("Report - By Averages", "No results found in the database.");
+                    return;
+                }
+
+                // FILTER: Remove invalid entries (bad dates, missing venues) and deduplicate
+                var validResults = allResults
+                    .Where(r => !string.IsNullOrWhiteSpace(r.Venue))
+                    .Where(r => r.Date.Year >= 2020)
+                    .Where(r => !string.IsNullOrWhiteSpace(r.PlayerName))
+                    .GroupBy(r => new { r.PlayerId, r.Date, r.Venue, r.Club })
+                    .Select(g => g.First())
+                    .ToList();
+
+                if (validResults.Count == 0)
+                {
+                    UpdateStatus("No valid results found in database.");
+                    await ShowErrorAsync("Report - By Averages", "No valid results found in the database.");
+                    return;
+                }
+
+                // Group by player and calculate statistics
+                var playerStats = validResults
+                    .GroupBy(r => new { r.PlayerId, r.PlayerName, r.Club })
+                    .Select(g => new
+                    {
+                        PlayerName = g.Key.PlayerName ?? "Unknown",
+                        ClubShort = g.Key.Club ?? "Unknown",
+                        TotalPoints = g.Sum(r => r.Result),
+                        GamesPlayed = g.Count(),
+                        AveragePoints = g.Average(r => r.Result)
+                    })
+                    .OrderByDescending(p => p.AveragePoints)
+                    .ThenByDescending(p => p.TotalPoints)
+                    .ThenBy(p => p.PlayerName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (playerStats.Count == 0)
+                {
+                    UpdateStatus("No player statistics available.");
+                    await ShowErrorAsync("Report - By Averages", "No player statistics could be calculated.");
+                    return;
+                }
+
+                // Generate CSV content
+                var csv = new StringBuilder();
+                csv.AppendLine("Player Averages Report - Sorted by Average Points");
+                csv.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                csv.AppendLine($"Total Players: {playerStats.Count}");
+                csv.AppendLine();
+                csv.AppendLine("Player Name,Club,Total Points,Games Played,Average Points");
+
+                foreach (var stat in playerStats)
+                {
+                    var playerName = CsvEscape(stat.PlayerName ?? string.Empty);
+                    var club = CsvEscape(stat.ClubShort ?? string.Empty);
+                    var totalPoints = stat.TotalPoints.ToString();
+                    var gamesPlayed = stat.GamesPlayed.ToString();
+                    var averagePoints = stat.AveragePoints.ToString("F2", CultureInfo.InvariantCulture);
+
+                    csv.AppendLine($"{playerName},{club},{totalPoints},{gamesPlayed},{averagePoints}");
+                }
+
+                var csvContent = csv.ToString();
+
+                // Show file save picker
+                var savedFile = await SaveCsvFileAsync("Player_Averages_Report", csvContent);
+                if (savedFile != null)
+                {
+                    UpdateStatus($"Report saved: {savedFile.Name}");
+                    await ShowErrorAsync("Report Saved", $"Player averages report saved successfully to:\n{savedFile.Path}\n\nTotal players: {playerStats.Count}");
+                }
+                else
+                {
+                    UpdateStatus("Report save cancelled.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Report generation failed: {ex.Message}");
+                await ShowErrorAsync("Report Error", $"Failed to generate averages report:\n{ex.Message}");
+            }
+        }
         private async Task<StorageFile?> SaveCsvFileAsync(string suggestedFileName, string content)
         {
             try
