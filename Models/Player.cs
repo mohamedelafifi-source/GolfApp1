@@ -9,6 +9,7 @@ namespace GolfApp1.Models
         public string Code { get; set; } = string.Empty;          // 6-digit unique code
         public string Name { get; set; } = string.Empty;          // up to 20 chars, unique
         public string IndexValue { get; set; } = string.Empty;    // xx.x
-        public string Note { get; set; } = string.Empty;          // up to 20 chars
+        public string Note { get; set; } = string.Empty;          // up to 20 chars (kept for future use, hidden from UI)
+        public int GamesPlayed { get; set; } = 0;                 // Number of games participated in
     }
 }

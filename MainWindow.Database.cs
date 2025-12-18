@@ -1,8 +1,11 @@
 ﻿//MainWindow.Database.cs
 //============================
+using GolfApp1.Models;
+using Microsoft.Data.Sqlite;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Windows.Storage;
@@ -288,17 +291,109 @@ namespace GolfApp1
             }
         }
 
+        private async void OnCleanDatabaseClicked(object sender, RoutedEventArgs e)
+        {
+            if (_db is null)
+            {
+                UpdateStatus("Database not initialized.");
+                await ShowErrorAsync("Clean Database", "Database not initialized.");
+                return;
+            }
+
+            try
+            {
+                // Show warning dialog with details
+                var warningDialog = new ContentDialog
+                {
+                    Title = "🧹 Clean Database?",
+                    Content = new StackPanel
+                    {
+                        Spacing = 12,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "This will remove invalid and duplicate result entries:",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                            },
+                            new TextBlock
+                            {
+                                Text = "✓ Entries with missing venues\n✓ Entries with invalid dates (before 2020)\n✓ Entries with missing player names\n✓ Duplicate entries (same player, date, venue, club)",
+                                TextWrapping = TextWrapping.Wrap,
+                                Margin = new Thickness(20, 0, 0, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "⚠️ Valid results will NOT be affected.\n⚠️ This action CANNOT be undone.",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontStyle = Windows.UI.Text.FontStyle.Italic,
+                                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange)
+                            },
+                            new TextBlock
+                            {
+                                Text = "Recommendation: Create a backup before cleaning.",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontSize = 11,
+                                FontStyle = Windows.UI.Text.FontStyle.Italic
+                            }
+                        }
+                    },
+                    PrimaryButtonText = "Clean Database",
+                    CloseButtonText = "Cancel",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = this.Content?.XamlRoot
+                };
+
+                if (this.Content?.XamlRoot == null)
+                {
+                    UpdateStatus("UI not ready.");
+                    return;
+                }
+
+                var result = await warningDialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    UpdateStatus("Database cleanup cancelled.");
+                    return;
+                }
+
+                UpdateStatus("Cleaning database...");
+
+                // Execute cleanup
+                var (success, error, removedCount) = await _db.CleanDatabaseAsync();
+
+                if (!success)
+                {
+                    UpdateStatus($"Database cleanup failed: {error}");
+                    await ShowErrorAsync("Cleanup Failed", $"Failed to clean database:\n{error}");
+                    return;
+                }
+
+                if (removedCount == 0)
+                {
+                    UpdateStatus("Database is already clean! No invalid entries found.");
+                    await ShowErrorAsync("Database Clean", "✅ Database is already clean!\n\nNo invalid or duplicate entries were found.");
+                }
+                else
+                {
+                    UpdateStatus($"Database cleaned: {removedCount} invalid entries removed.");
+                    await ShowErrorAsync("Cleanup Complete", $"✅ Database cleaned successfully!\n\n{removedCount} invalid/duplicate entries were removed.\n\nYour database is now optimized.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Database cleanup failed: {ex.Message}");
+                await ShowErrorAsync("Cleanup Error", $"An error occurred during cleanup:\n{ex.Message}");
+            }
+        }
+
         private async Task<string?> ExecuteClearResultsAsync()
         {
             if (_db is null) return "Database not initialized.";
 
             try
             {
-                // Use reflection or add a public method to Database class
-                // For now, we'll execute SQL directly through a new public method
-                // You'll need to add this method to Database.cs:
-                // public async Task<string?> ClearAllResultsAsync()
-
                 var method = _db.GetType().GetMethod("ClearAllResultsAsync");
                 if (method != null)
                 {
@@ -368,102 +463,7 @@ namespace GolfApp1
                 }
             }
         }
-        private async void OnCleanDatabaseClicked(object sender, RoutedEventArgs e)
-        {
-            if (_db is null)
-            {
-                UpdateStatus("Database not initialized.");
-                await ShowErrorAsync("Clean Database", "Database not initialized.");
-                return;
-            }
 
-            try
-            {
-                // Show warning dialog with details
-                var warningDialog = new ContentDialog
-                {
-                    Title = "🧹 Clean Database?",
-                    Content = new StackPanel
-                    {
-                        Spacing = 12,
-                        Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "This will remove invalid and duplicate result entries:",
-                        TextWrapping = TextWrapping.Wrap,
-                        FontWeight = Microsoft.UI.Text.FontWeights.Bold
-                    },
-                    new TextBlock
-                    {
-                        Text = "✓ Entries with missing venues\n✓ Entries with invalid dates (before 2020)\n✓ Entries with missing player names\n✓ Duplicate entries (same player, date, venue, club)",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(20, 0, 0, 0)
-                    },
-                    new TextBlock
-                    {
-                        Text = "⚠️ Valid results will NOT be affected.\n⚠️ This action CANNOT be undone.",
-                        TextWrapping = TextWrapping.Wrap,
-                        FontStyle = Windows.UI.Text.FontStyle.Italic,
-                        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange)
-                    },
-                    new TextBlock
-                    {
-                        Text = "Recommendation: Create a backup before cleaning.",
-                        TextWrapping = TextWrapping.Wrap,
-                        FontSize = 11,
-                        FontStyle = Windows.UI.Text.FontStyle.Italic
-                    }
-                }
-                    },
-                    PrimaryButtonText = "Clean Database",
-                    CloseButtonText = "Cancel",
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = this.Content?.XamlRoot
-                };
-
-                if (this.Content?.XamlRoot == null)
-                {
-                    UpdateStatus("UI not ready.");
-                    return;
-                }
-
-                var result = await warningDialog.ShowAsync();
-                if (result != ContentDialogResult.Primary)
-                {
-                    UpdateStatus("Database cleanup cancelled.");
-                    return;
-                }
-
-                UpdateStatus("Cleaning database...");
-
-                // Execute cleanup
-                var (success, error, removedCount) = await _db.CleanDatabaseAsync();
-
-                if (!success)
-                {
-                    UpdateStatus($"Database cleanup failed: {error}");
-                    await ShowErrorAsync("Cleanup Failed", $"Failed to clean database:\n{error}");
-                    return;
-                }
-
-                if (removedCount == 0)
-                {
-                    UpdateStatus("Database is already clean! No invalid entries found.");
-                    await ShowErrorAsync("Database Clean", "✅ Database is already clean!\n\nNo invalid or duplicate entries were found.");
-                }
-                else
-                {
-                    UpdateStatus($"Database cleaned: {removedCount} invalid entries removed.");
-                    await ShowErrorAsync("Cleanup Complete", $"✅ Database cleaned successfully!\n\n{removedCount} invalid/duplicate entries were removed.\n\nYour database is now optimized.");
-                }
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus($"Database cleanup failed: {ex.Message}");
-                await ShowErrorAsync("Cleanup Error", $"An error occurred during cleanup:\n{ex.Message}");
-            }
-        }
         private async Task ReloadAllDataAsync()
         {
             if (_vm == null) return;

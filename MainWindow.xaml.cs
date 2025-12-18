@@ -1,4 +1,5 @@
 //MainWindow.xaml.cs
+//=====================
 using GolfApp1.Data;
 using GolfApp1.Models;
 using GolfApp1.ViewModels;
@@ -403,7 +404,11 @@ namespace GolfApp1
                 PlayerCodeTextBox.Text = p.Code;
                 PlayerNameTextBox.Text = p.Name;
                 PlayerIndexTextBox.Text = p.IndexValue;
-                PlayerNoteTextBox.Text = p.Note;
+                // CHANGED: Display GamesPlayed instead of Note
+                if (PlayerGamesPlayedLabel != null)
+                {
+                    PlayerGamesPlayedLabel.Text = p.GamesPlayed.ToString();
+                }
                 UpdatePlayerButton.Content = "Update";
             }
             else
@@ -411,7 +416,11 @@ namespace GolfApp1
                 PlayerCodeTextBox.Text = string.Empty;
                 PlayerNameTextBox.Text = string.Empty;
                 PlayerIndexTextBox.Text = string.Empty;
-                PlayerNoteTextBox.Text = string.Empty;
+                // CHANGED: Display 0 for new player
+                if (PlayerGamesPlayedLabel != null)
+                {
+                    PlayerGamesPlayedLabel.Text = "0";
+                }
                 UpdatePlayerButton.Content = "Add";
             }
 
@@ -490,7 +499,8 @@ namespace GolfApp1
             var code = PlayerCodeTextBox.Text?.Trim() ?? string.Empty;
             var name = PlayerNameTextBox.Text?.Trim() ?? string.Empty;
             var idx = PlayerIndexTextBox.Text?.Trim() ?? string.Empty;
-            var note = PlayerNoteTextBox.Text?.Trim() ?? string.Empty;
+            // CHANGED: Note field is no longer editable from UI, keep existing value
+            var note = _playerIndex < _players.Count ? _players[_playerIndex].Note : string.Empty;
 
             if (code.Length != 6 || !int.TryParse(code, out _))
             {
@@ -513,7 +523,9 @@ namespace GolfApp1
                     existing.Code = code;
                     existing.Name = name;
                     existing.IndexValue = idx;
-                    existing.Note = note;
+                    // CHANGED: Keep existing Note and GamesPlayed values
+                    // existing.Note is already set
+                    // existing.GamesPlayed is already set
 
                     var err = await _vm.UpsertPlayerAsync(existing);
                     if (err != null)
@@ -542,7 +554,8 @@ namespace GolfApp1
                         Code = code,
                         Name = name,
                         IndexValue = idx,
-                        Note = note
+                        Note = string.Empty, // CHANGED: Empty for new players
+                        GamesPlayed = 0      // CHANGED: 0 for new players
                     };
 
                     var err = await _vm.UpsertPlayerAsync(player);

@@ -312,7 +312,7 @@ WHERE Id = $id;";
             var list = new List<Player>();
             if (_conn is null) return list;
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note FROM Players WHERE ClubShortName = $club ORDER BY Code;";
+            cmd.CommandText = "SELECT Id, ClubShortName, Code, Name, IndexValue, Note, COALESCE(GamesPlayed, 0) FROM Players WHERE ClubShortName = $club ORDER BY Code;";
             cmd.Parameters.AddWithValue("$club", clubShort);
             using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
@@ -324,7 +324,8 @@ WHERE Id = $id;";
                     Code = rdr.GetString(2),
                     Name = rdr.GetString(3),
                     IndexValue = rdr.IsDBNull(4) ? string.Empty : rdr.GetString(4),
-                    Note = rdr.IsDBNull(5) ? string.Empty : rdr.GetString(5)
+                    Note = rdr.IsDBNull(5) ? string.Empty : rdr.GetString(5),
+                    GamesPlayed = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6)
                 });
             }
             return list;
@@ -736,15 +737,9 @@ ORDER BY Position, PlayerName;";
         }
 
         // ============================================================================
-        // DISPOSE
+        // CLEAN DATABASE
         // ============================================================================
 
-        public void Dispose()
-        {
-            try { _conn?.Close(); } catch { /* ignore */ }
-            _conn?.Dispose();
-            _conn = null;
-        }
         /// <summary>
         /// Clean database by removing invalid entries (missing venues, bad dates, duplicates).
         /// Returns a tuple with (success, error message, count of removed entries).
@@ -813,6 +808,146 @@ WHERE Id NOT IN (
             {
                 return (false, ex.Message, 0);
             }
+        }
+
+        // ============================================================================
+        // GAMESPLAYED MIGRATION AND MANAGEMENT
+        // ============================================================================
+
+        /// <summary>
+        /// Add GamesPlayed column to Players table if it doesn't exist (migration).
+        /// </summary>
+        public async Task<(bool Success, string? Error)> MigrateAddGamesPlayedColumnAsync()
+        {
+            if (_conn is null) return (false, "Database not initialized.");
+
+            try
+            {
+                // Check if column already exists
+                using var checkCmd = _conn.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(Players);";
+                using var rdr = await checkCmd.ExecuteReaderAsync();
+                bool columnExists = false;
+                while (await rdr.ReadAsync())
+                {
+                    var colName = rdr.GetString(1); // column name is at index 1
+                    if (colName.Equals("GamesPlayed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        columnExists = true;
+                        break;
+                    }
+                }
+
+                if (columnExists)
+                {
+                    return (true, null); // Column already exists, no migration needed
+                }
+
+                // Add the column
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "ALTER TABLE Players ADD COLUMN GamesPlayed INTEGER NOT NULL DEFAULT 0;";
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+
+                return (true, null);
+            }
+            catch (SqliteException ex)
+            {
+                return (false, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Populate GamesPlayed field for all players by counting their results.
+        /// </summary>
+        public async Task<(bool Success, string? Error, int UpdatedCount)> PopulateGamesPlayedAsync()
+        {
+            if (_conn is null) return (false, "Database not initialized.", 0);
+
+            try
+            {
+                // First ensure the column exists
+                var (migrationSuccess, migrationError) = await MigrateAddGamesPlayedColumnAsync();
+                if (!migrationSuccess)
+                {
+                    return (false, $"Migration failed: {migrationError}", 0);
+                }
+
+                using var tran = _conn.BeginTransaction();
+
+                // Update GamesPlayed for all players based on Results count
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = @"
+UPDATE Players
+SET GamesPlayed = (
+    SELECT COUNT(DISTINCT Date || Venue)
+    FROM Results
+    WHERE Results.PlayerId = Players.Id
+      AND Results.Venue IS NOT NULL 
+      AND Results.Venue != ''
+      AND Results.Date >= '2020-01-01'
+);";
+
+                var updatedCount = await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+
+                return (true, null, updatedCount);
+            }
+            catch (SqliteException ex)
+            {
+                return (false, ex.Message, 0);
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message, 0);
+            }
+        }
+
+        /// <summary>
+        /// Increment GamesPlayed for a specific player.
+        /// </summary>
+        public async Task<string?> IncrementGamesPlayedAsync(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) return "Player ID is required.";
+            if (_conn is null) return "Database not initialized.";
+
+            try
+            {
+                using var tran = _conn.BeginTransaction();
+                using var cmd = _conn.CreateCommand();
+                cmd.Transaction = tran;
+                cmd.CommandText = "UPDATE Players SET GamesPlayed = GamesPlayed + 1 WHERE Id = $id;";
+                cmd.Parameters.AddWithValue("$id", playerId);
+                await cmd.ExecuteNonQueryAsync();
+                await tran.CommitAsync();
+                return null;
+            }
+            catch (SqliteException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        // ============================================================================
+        // DISPOSE
+        // ============================================================================
+
+        public void Dispose()
+        {
+            try { _conn?.Close(); } catch { /* ignore */ }
+            _conn?.Dispose();
+            _conn = null;
         }
     }
 }
