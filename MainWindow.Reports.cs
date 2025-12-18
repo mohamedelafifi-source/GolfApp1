@@ -28,40 +28,91 @@ namespace GolfApp1
 
             try
             {
-                UpdateStatus("Loading clubs for report...");
+                UpdateStatus("Loading venues for report...");
 
-                // Get all clubs
-                var clubs = await _db.GetAllClubsAsync();
-                if (clubs == null || clubs.Count == 0)
+                // Step 1: Get venues that have results
+                var venuesWithResults = await _db.GetVenuesWithResultsAsync();
+                if (venuesWithResults == null || venuesWithResults.Count == 0)
                 {
-                    UpdateStatus("No clubs found in database.");
-                    await ShowErrorAsync("Report - By Club", "No clubs found in the database.");
+                    await ShowErrorAsync("Report - By Club", "No venues with results found in the database.");
                     return;
                 }
 
-                // Show club selection dialog
-                var selectedClub = await ShowClubSelectionDialogAsync(clubs);
-                if (selectedClub == null)
+                // Step 2: Show venue selection dialog
+                var selectedVenue = await ShowVenueSelectionForReportAsync(venuesWithResults);
+                if (selectedVenue == null)
                 {
                     UpdateStatus("Report cancelled.");
                     return;
                 }
 
-                UpdateStatus($"Generating report for club: {selectedClub.LongName}...");
-
-                // Get all results for this club
-                var results = await _db.GetResultsAsync(selectedClub.ShortName);
-                if (results == null || results.Count == 0)
+                // Step 3: Get the date for this venue
+                var gameDate = await _db.GetDateForVenueAsync(selectedVenue);
+                if (gameDate == null)
                 {
-                    UpdateStatus($"No results found for {selectedClub.LongName}.");
-                    await ShowErrorAsync("Report - By Club", $"No results found for club '{selectedClub.LongName}'.");
+                    await ShowErrorAsync("Report - By Club", $"No date found for venue '{selectedVenue}'.");
                     return;
                 }
 
-                // Sort results: by Venue, then Date, then Result (descending - best score first), then Handicap (ascending - lower handicap first)
+                // Step 4: Show date confirmation
+                var confirmed = await ShowDateConfirmationForReportAsync(selectedVenue, gameDate.Value);
+                if (!confirmed)
+                {
+                    UpdateStatus("Report cancelled.");
+                    return;
+                }
+
+                // Step 5: Get clubs that participated at this venue/date
+                var clubShortNames = await _db.GetClubsForVenueDateAsync(selectedVenue, gameDate.Value);
+                if (clubShortNames == null || clubShortNames.Count == 0)
+                {
+                    await ShowErrorAsync("Report - By Club", $"No clubs found for {selectedVenue} on {gameDate.Value:yyyy-MM-dd}.");
+                    return;
+                }
+
+                // Step 6: Load all clubs to get LongNames
+                var allClubs = await _db.GetAllClubsAsync();
+                var clubLookup = allClubs.ToDictionary(c => c.ShortName, c => c);
+
+                // Build display list with LongNames
+                var clubDisplayList = new List<(string ShortName, string DisplayName)>();
+                foreach (var shortName in clubShortNames)
+                {
+                    var longName = clubLookup.ContainsKey(shortName) ? clubLookup[shortName].LongName : shortName;
+                    clubDisplayList.Add((shortName, $"{longName} ({shortName})"));
+                }
+
+                // Step 7: Show club selection
+                var selectedClubShortName = await ShowClubSelectionForReportAsync(clubDisplayList);
+                if (selectedClubShortName == null)
+                {
+                    UpdateStatus("Report cancelled.");
+                    return;
+                }
+
+                // Step 8: Get club details
+                var selectedClub = clubLookup.ContainsKey(selectedClubShortName) ? clubLookup[selectedClubShortName] : null;
+                if (selectedClub == null)
+                {
+                    await ShowErrorAsync("Report - By Club", $"Club '{selectedClubShortName}' not found.");
+                    return;
+                }
+
+                UpdateStatus($"Generating report for club: {selectedClub.LongName}...");
+
+                // FIX: Get results filtered by venue, date, and club
+                var results = await _db.GetResultsByVenueDateClubAsync(selectedVenue, gameDate.Value, selectedClub.ShortName);
+
+                if (results == null || results.Count == 0)
+                {
+                    UpdateStatus($"No results found for {selectedClub.LongName} at {selectedVenue} on {gameDate.Value:yyyy-MM-dd}.");
+                    await ShowErrorAsync("Report - By Club", $"No results found for club '{selectedClub.LongName}' at {selectedVenue} on {gameDate.Value:yyyy-MM-dd}.");
+                    return;
+                }
+
+                // Sort results: by Position (ascending), then by Result (descending), then by Handicap (ascending)
                 var sortedResults = results
-                    .OrderBy(r => r.Venue ?? string.Empty)
-                    .ThenBy(r => r.Date)
+                    .OrderBy(r => r.Position)
                     .ThenByDescending(r => r.Result)
                     .ThenBy(r => r.Hcp)
                     .ToList();
@@ -70,7 +121,7 @@ namespace GolfApp1
                 var csvContent = GenerateClubReportCsv(selectedClub, sortedResults);
 
                 // Show file save picker
-                var savedFile = await SaveCsvFileAsync($"{selectedClub.ShortName}_Report", csvContent);
+                var savedFile = await SaveCsvFileAsync($"{selectedClub.ShortName}_{selectedVenue.Replace(" ", "_")}_{gameDate.Value:yyyyMMdd}_Report", csvContent);
                 if (savedFile != null)
                 {
                     UpdateStatus($"Report saved: {savedFile.Name}");
@@ -157,9 +208,81 @@ namespace GolfApp1
             }
         }
 
-        private async Task<Club?> ShowClubSelectionDialogAsync(List<Club> clubs)
+        private async Task<string?> ShowVenueSelectionForReportAsync(List<string> venues)
         {
-            // Create a dialog with a ComboBox to select club
+            var comboBox = new ComboBox
+            {
+                Width = 400,
+                PlaceholderText = "Select a venue",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                ItemsSource = venues.OrderBy(v => v).ToList()
+            };
+
+            var content = new StackPanel { Spacing = 12 };
+            content.Children.Add(new TextBlock
+            {
+                Text = "Select the venue for the report:",
+                TextWrapping = TextWrapping.Wrap
+            });
+            content.Children.Add(comboBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = "Report - Select Venue",
+                Content = content,
+                PrimaryButtonText = "Next",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            dialog.IsPrimaryButtonEnabled = false;
+            comboBox.SelectionChanged += (s, args) =>
+            {
+                dialog.IsPrimaryButtonEnabled = comboBox.SelectedIndex >= 0;
+            };
+
+            if (this.Content?.XamlRoot == null) return null;
+
+            var result = await dialog.ShowAsync();
+            return result == ContentDialogResult.Primary ? comboBox.SelectedItem?.ToString() : null;
+        }
+
+        private async Task<bool> ShowDateConfirmationForReportAsync(string venue, DateTime date)
+        {
+            var content = new StackPanel { Spacing = 12 };
+            content.Children.Add(new TextBlock
+            {
+                Text = $"Generate report for:",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = $"Venue: {venue}",
+                Margin = new Thickness(20, 0, 0, 0)
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = $"Date: {date:dddd, MMMM d, yyyy}",
+                Margin = new Thickness(20, 0, 0, 0)
+            });
+
+            var dialog = new ContentDialog
+            {
+                Title = "Confirm Report Date",
+                Content = content,
+                PrimaryButtonText = "Continue",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.Content?.XamlRoot
+            };
+
+            if (this.Content?.XamlRoot == null) return false;
+
+            var result = await dialog.ShowAsync();
+            return result == ContentDialogResult.Primary;
+        }
+
+        private async Task<string?> ShowClubSelectionForReportAsync(List<(string ShortName, string DisplayName)> clubs)
+        {
             var comboBox = new ComboBox
             {
                 Width = 400,
@@ -167,52 +290,46 @@ namespace GolfApp1
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
 
-            // Add clubs to ComboBox (display LongName, but store Club object)
-            foreach (var club in clubs.OrderBy(c => c.LongName))
+            foreach (var club in clubs.OrderBy(c => c.DisplayName))
             {
                 comboBox.Items.Add(new ComboBoxItem
                 {
-                    Content = $"{club.LongName} ({club.ShortName})",
-                    Tag = club
+                    Content = club.DisplayName,
+                    Tag = club.ShortName
                 });
             }
 
             var content = new StackPanel { Spacing = 12 };
             content.Children.Add(new TextBlock
             {
-                Text = "Select a club to generate the report:",
+                Text = "Select the club for the report:",
                 TextWrapping = TextWrapping.Wrap
             });
             content.Children.Add(comboBox);
 
             var dialog = new ContentDialog
             {
-                Title = "Report - By Club",
+                Title = "Report - Select Club",
                 Content = content,
-                PrimaryButtonText = "Generate",
+                PrimaryButtonText = "Generate Report",
                 CloseButtonText = "Cancel",
                 XamlRoot = this.Content?.XamlRoot
             };
 
-            // Disable primary button until a club is selected
             dialog.IsPrimaryButtonEnabled = false;
             comboBox.SelectionChanged += (s, args) =>
             {
                 dialog.IsPrimaryButtonEnabled = comboBox.SelectedIndex >= 0;
             };
 
-            if (this.Content?.XamlRoot == null)
-            {
-                return null;
-            }
+            if (this.Content?.XamlRoot == null) return null;
 
             var result = await dialog.ShowAsync();
 
-            if (result == ContentDialogResult.Primary && comboBox.SelectedItem is ComboBoxItem selectedItem)
+            if (result == ContentDialogResult.Primary && comboBox.SelectedItem is ComboBoxItem item)
             {
-                return selectedItem.Tag as Club;
+                return item.Tag as string;
             }
-
             return null;
         }
 
