@@ -100,7 +100,7 @@ namespace GolfApp1
 
                 UpdateStatus($"Generating report for club: {selectedClub.LongName}...");
 
-                // FIX: Get results filtered by venue, date, and club
+                // Get results filtered by venue, date, and club
                 var results = await _db.GetResultsByVenueDateClubAsync(selectedVenue, gameDate.Value, selectedClub.ShortName);
 
                 if (results == null || results.Count == 0)
@@ -161,7 +161,7 @@ namespace GolfApp1
                     return;
                 }
 
-                // Gather all results from all clubs
+                // Gather all results from all clubs (all venues, all dates)
                 var allResults = new List<ResultRecord>();
                 foreach (var club in clubs)
                 {
@@ -179,9 +179,34 @@ namespace GolfApp1
                     return;
                 }
 
-                // Sort results: by Result (descending - best score first), then Handicap (ascending), then Player Name
-                var sortedResults = allResults
-                    .OrderByDescending(r => r.Result)
+                // FILTER: Remove invalid entries (bad dates, missing venues) and deduplicate
+                var validResults = allResults
+                    .Where(r => !string.IsNullOrWhiteSpace(r.Venue))  // Must have venue
+                    .Where(r => r.Date.Year >= 2020)                  // Must have valid date (not DateTime.MinValue = 1601)
+                    .Where(r => !string.IsNullOrWhiteSpace(r.PlayerName))  // Must have player name
+                    .GroupBy(r => new { r.PlayerId, r.Date, r.Venue, r.Club })  // Group by unique combination
+                    .Select(g => g.First())  // Take first from each duplicate group
+                    .ToList();
+
+                if (validResults.Count == 0)
+                {
+                    UpdateStatus("No valid results found in database (after filtering bad data).");
+                    await ShowErrorAsync("Report - By Player", "No valid results found in the database.");
+                    return;
+                }
+
+                // Report how many invalid entries were filtered out
+                var filteredCount = allResults.Count - validResults.Count;
+                if (filteredCount > 0)
+                {
+                    UpdateStatus($"Filtered out {filteredCount} invalid/duplicate entries from report.");
+                }
+
+                // Sort results: by Venue, then Date, then Result (descending - best score first), then Handicap (ascending), then Player Name
+                var sortedResults = validResults
+                    .OrderBy(r => r.Venue ?? string.Empty)
+                    .ThenBy(r => r.Date)
+                    .ThenByDescending(r => r.Result)
                     .ThenBy(r => r.Hcp)
                     .ThenBy(r => r.PlayerName ?? string.Empty)
                     .ToList();
@@ -194,7 +219,7 @@ namespace GolfApp1
                 if (savedFile != null)
                 {
                     UpdateStatus($"Report saved: {savedFile.Name}");
-                    await ShowErrorAsync("Report Saved", $"All players report saved successfully to:\n{savedFile.Path}");
+                    await ShowErrorAsync("Report Saved", $"All players report saved successfully to:\n{savedFile.Path}\n\nFiltered out {filteredCount} invalid/duplicate entries.");
                 }
                 else
                 {
@@ -402,7 +427,7 @@ namespace GolfApp1
                 InitializeWithWindow.Initialize(savePicker, WindowNative.GetWindowHandle(this));
                 savePicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
                 savePicker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
-                savePicker.SuggestedFileName = $"{suggestedFileName}_{DateTime.Now:yyyyMMdd_HHmmss}";
+                savePicker.SuggedFileName = $"{suggestedFileName}_{DateTime.Now:yyyyMMdd_HHmmss}";
 
                 var file = await savePicker.PickSaveFileAsync().AsTask();
                 if (file != null)
