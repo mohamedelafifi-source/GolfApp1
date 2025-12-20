@@ -195,17 +195,17 @@ namespace GolfApp1
 
             if (draftExists)
             {
-                // Show load draft option
-                var loadDraft = await ShowLoadDraftDialogAsync(selectedClub!, selectedVenue!, selectedDate!.Value, lastModified!.Value);
-                if (loadDraft)
+                // Show load draft confirmation (no "Start New" option - only Load or Cancel)
+                var shouldLoad = await ShowLoadDraftDialogAsync(selectedClub!, selectedVenue!, selectedDate!.Value, lastModified!.Value);
+                if (shouldLoad)
                 {
                     // Load existing draft
                     await ShowTeamSelectionDialogAsync(selectedClub!, selectedVenue!, selectedDate!.Value, draftId);
                 }
                 else
                 {
-                    // Start new (will overwrite draft)
-                    await ShowTeamSelectionDialogAsync(selectedClub!, selectedVenue!, selectedDate!.Value, null);
+                    // User cancelled
+                    UpdateStatus("Team creation cancelled.");
                 }
             }
             else
@@ -243,7 +243,7 @@ namespace GolfApp1
                     },
                     new TextBlock
                     {
-                        Text = "Would you like to load the draft or start a new selection?",
+                        Text = "Would you like to continue editing this draft?",
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 8, 0, 0)
                     }
@@ -255,7 +255,6 @@ namespace GolfApp1
                 Title = "Draft Exists",
                 Content = content,
                 PrimaryButtonText = "Load Draft",
-                SecondaryButtonText = "Start New",
                 CloseButtonText = "Cancel",
                 XamlRoot = this.Content?.XamlRoot
             };
@@ -272,359 +271,374 @@ namespace GolfApp1
 
         private async Task ShowTeamSelectionDialogAsync(string clubShortName, string venue, DateTime gameDate, string? existingDraftId)
         {
-            // Load players for selected club
-            var players = await _db!.GetPlayersByClubAsync(clubShortName);
-            if (players == null || players.Count == 0)
+            bool keepDialogOpen = true;
+
+            while (keepDialogOpen)
             {
-                await ShowErrorAsync("Create Team", $"No players found for club '{clubShortName}'.");
-                return;
-            }
-
-            // Create divisions display areas
-            var divAPanel = new StackPanel { Spacing = 4 };
-            var divBPanel = new StackPanel { Spacing = 4 };
-            var divCPanel = new StackPanel { Spacing = 4 };
-
-            var divAScroll = new ScrollViewer
-            {
-                Content = divAPanel,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                IsTabStop = true,
-                TabIndex = 0
-            };
-
-            var divBScroll = new ScrollViewer
-            {
-                Content = divBPanel,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                IsTabStop = true,
-                TabIndex = 1
-            };
-
-            var divCScroll = new ScrollViewer
-            {
-                Content = divCPanel,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                IsTabStop = true,
-                TabIndex = 2
-            };
-
-            var selectionStatus = new TextBlock
-            {
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Margin = new Thickness(0, 12, 0, 0),
-                TextAlignment = TextAlignment.Center
-            };
-
-            var validationStatus = new TextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0),
-                TextAlignment = TextAlignment.Center,
-                FontSize = 12
-            };
-
-            List<SelectablePlayer> allSelectablePlayers = new();
-            string? currentDraftId = existingDraftId;
-
-            // Parse and categorize players by division
-            foreach (var player in players)
-            {
-                if (string.IsNullOrWhiteSpace(player.IndexValue))
-                    continue;
-
-                if (!double.TryParse(player.IndexValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double handicap))
-                    continue;
-
-                if (handicap < 0 || handicap > 40)
-                    continue;
-
-                string division;
-                if (handicap <= 12.4)
-                    division = "A";
-                else if (handicap <= 18.4)
-                    division = "B";
-                else if (handicap <= 24.4)
-                    division = "C";
-                else
-                    continue;
-
-                allSelectablePlayers.Add(new SelectablePlayer
+                // Load players for selected club
+                var players = await _db!.GetPlayersByClubAsync(clubShortName);
+                if (players == null || players.Count == 0)
                 {
-                    Player = player,
-                    IsSelected = false,
-                    Division = division,
-                    Handicap = handicap
-                });
-            }
-
-            // Sort players by name within each division
-            allSelectablePlayers = allSelectablePlayers
-                .OrderBy(p => p.Division)
-                .ThenBy(p => p.Player.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            // Load existing draft selections if available
-            if (!string.IsNullOrEmpty(existingDraftId))
-            {
-                var draftPlayers = await _db.LoadDraftPlayersAsync(existingDraftId);
-                if (draftPlayers != null)
-                {
-                    var draftPlayerIds = new HashSet<string>(draftPlayers.Select(dp => dp.PlayerId));
-                    foreach (var sp in allSelectablePlayers)
-                    {
-                        if (draftPlayerIds.Contains(sp.Player.Id))
-                        {
-                            sp.IsSelected = true;
-                        }
-                    }
+                    await ShowErrorAsync("Create Team", $"No players found for club '{clubShortName}'.");
+                    return;
                 }
-            }
 
-            // Update display
-            void UpdatePlayerDisplay()
-            {
-                var selectedCount = allSelectablePlayers.Count(p => p.IsSelected);
-                var divACount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "A");
-                var divBCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "B");
-                var divCCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "C");
+                // Create divisions display areas
+                var divAPanel = new StackPanel { Spacing = 4 };
+                var divBPanel = new StackPanel { Spacing = 4 };
+                var divCPanel = new StackPanel { Spacing = 4 };
 
-                selectionStatus.Text = $"Selected: Division A ({divACount}/3) | Division B ({divBCount}/3) | Division C ({divCCount}/2) | Total: {selectedCount}";
-
-                // Validation for finalize (≤ max players)
-                bool valid = divACount <= 3 && divBCount <= 3 && divCCount <= 2;
-                if (!valid)
+                var divAScroll = new ScrollViewer
                 {
-                    var issues = new List<string>();
-                    if (divACount > 3) issues.Add($"Division A has {divACount} (max 3)");
-                    if (divBCount > 3) issues.Add($"Division B has {divBCount} (max 3)");
-                    if (divCCount > 2) issues.Add($"Division C has {divCCount} (max 2)");
-                    validationStatus.Text = $"⚠️ {string.Join(", ", issues)}";
-                    validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
-                }
-                else if (selectedCount > 0)
-                {
-                    validationStatus.Text = "✓ Ready to save or finalize";
-                    validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
-                }
-                else
-                {
-                    validationStatus.Text = "";
-                }
-            }
-
-            // Create checkboxes for each player
-            foreach (var sp in allSelectablePlayers)
-            {
-                var checkbox = new CheckBox
-                {
-                    Content = $"{sp.Player.Name} - HCP: {sp.Handicap:F1} - Games: {sp.Player.GamesPlayed}",
-                    IsChecked = sp.IsSelected,
-                    Tag = sp,
-                    Margin = new Thickness(0, 2, 0, 2)
+                    Content = divAPanel,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    IsTabStop = true,
+                    TabIndex = 0
                 };
 
-                checkbox.Checked += (s, e) =>
+                var divBScroll = new ScrollViewer
                 {
-                    sp.IsSelected = true;
-                    UpdatePlayerDisplay();
+                    Content = divBPanel,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    IsTabStop = true,
+                    TabIndex = 1
                 };
 
-                checkbox.Unchecked += (s, e) =>
+                var divCScroll = new ScrollViewer
                 {
-                    sp.IsSelected = false;
-                    UpdatePlayerDisplay();
+                    Content = divCPanel,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    IsTabStop = true,
+                    TabIndex = 2
                 };
 
-                if (sp.Division == "A") divAPanel.Children.Add(checkbox);
-                else if (sp.Division == "B") divBPanel.Children.Add(checkbox);
-                else if (sp.Division == "C") divCPanel.Children.Add(checkbox);
-            }
-
-            // Build horizontal division layout
-            var divisionsGrid = new Grid
-            {
-                ColumnDefinitions =
+                var selectionStatus = new TextBlock
                 {
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
-                },
-                Height = 400,
-                Margin = new Thickness(0, 12, 0, 0)
-            };
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    TextAlignment = TextAlignment.Center
+                };
 
-            // Division A
-            var divABorder = new Border
-            {
-                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 0, 4, 0),
-                Child = new StackPanel
+                var validationStatus = new TextBlock
                 {
-                    Spacing = 8,
-                    Children =
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    TextAlignment = TextAlignment.Center,
+                    FontSize = 12
+                };
+
+                List<SelectablePlayer> allSelectablePlayers = new();
+                string? currentDraftId = existingDraftId;
+
+                // Parse and categorize players by division
+                foreach (var player in players)
+                {
+                    if (string.IsNullOrWhiteSpace(player.IndexValue))
+                        continue;
+
+                    if (!double.TryParse(player.IndexValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double handicap))
+                        continue;
+
+                    if (handicap < 0 || handicap > 40)
+                        continue;
+
+                    string division;
+                    if (handicap <= 12.4)
+                        division = "A";
+                    else if (handicap <= 18.4)
+                        division = "B";
+                    else if (handicap <= 24.4)
+                        division = "C";
+                    else
+                        continue;
+
+                    allSelectablePlayers.Add(new SelectablePlayer
                     {
-                        new TextBlock
+                        Player = player,
+                        IsSelected = false,
+                        Division = division,
+                        Handicap = handicap
+                    });
+                }
+
+                // Sort players by name within each division
+                allSelectablePlayers = allSelectablePlayers
+                    .OrderBy(p => p.Division)
+                    .ThenBy(p => p.Player.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                // Load existing draft selections if available
+                if (!string.IsNullOrEmpty(existingDraftId))
+                {
+                    var draftPlayers = await _db.LoadDraftPlayersAsync(existingDraftId);
+                    if (draftPlayers != null)
+                    {
+                        var draftPlayerIds = new HashSet<string>(draftPlayers.Select(dp => dp.PlayerId));
+                        foreach (var sp in allSelectablePlayers)
                         {
-                            Text = "Division A (HCP 0.0 - 12.4)",
-                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 8, 8, 0)
-                        },
-                        new TextBlock
-                        {
-                            Text = "Max 3 players",
-                            FontSize = 12,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 0, 8, 4)
+                            if (draftPlayerIds.Contains(sp.Player.Id))
+                            {
+                                sp.IsSelected = true;
+                            }
                         }
                     }
                 }
-            };
-            divAScroll.Height = 320;
-            divAScroll.Margin = new Thickness(8, 0, 8, 8);
-            ((StackPanel)divABorder.Child).Children.Add(divAScroll);
-            Grid.SetColumn(divABorder, 0);
-            divisionsGrid.Children.Add(divABorder);
 
-            // Division B
-            var divBBorder = new Border
-            {
-                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(4, 0, 4, 0),
-                Child = new StackPanel
+                // Update display
+                void UpdatePlayerDisplay()
                 {
-                    Spacing = 8,
-                    Children =
+                    var selectedCount = allSelectablePlayers.Count(p => p.IsSelected);
+                    var divACount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "A");
+                    var divBCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "B");
+                    var divCCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "C");
+
+                    selectionStatus.Text = $"Selected: Division A ({divACount}/3) | Division B ({divBCount}/3) | Division C ({divCCount}/2) | Total: {selectedCount}";
+
+                    // Validation for finalize (≤ max players)
+                    bool valid = divACount <= 3 && divBCount <= 3 && divCCount <= 2;
+                    if (!valid)
                     {
-                        new TextBlock
-                        {
-                            Text = "Division B (HCP 12.5 - 18.4)",
-                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 8, 8, 0)
-                        },
-                        new TextBlock
-                        {
-                            Text = "Max 3 players",
-                            FontSize = 12,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 0, 8, 4)
-                        }
+                        var issues = new List<string>();
+                        if (divACount > 3) issues.Add($"Division A has {divACount} (max 3)");
+                        if (divBCount > 3) issues.Add($"Division B has {divBCount} (max 3)");
+                        if (divCCount > 2) issues.Add($"Division C has {divCCount} (max 2)");
+                        validationStatus.Text = $"⚠️ {string.Join(", ", issues)}";
+                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
+                    }
+                    else if (selectedCount > 0)
+                    {
+                        validationStatus.Text = "✓ Ready to save or finalize";
+                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+                    }
+                    else
+                    {
+                        validationStatus.Text = "";
                     }
                 }
-            };
-            divBScroll.Height = 320;
-            divBScroll.Margin = new Thickness(8, 0, 8, 8);
-            ((StackPanel)divBBorder.Child).Children.Add(divBScroll);
-            Grid.SetColumn(divBBorder, 1);
-            divisionsGrid.Children.Add(divBBorder);
 
-            // Division C
-            var divCBorder = new Border
-            {
-                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(4, 0, 0, 0),
-                Child = new StackPanel
+                // Create checkboxes for each player
+                foreach (var sp in allSelectablePlayers)
                 {
-                    Spacing = 8,
-                    Children =
+                    var checkbox = new CheckBox
                     {
-                        new TextBlock
-                        {
-                            Text = "Division C (HCP 18.5 - 24.4)",
-                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 8, 8, 0)
-                        },
-                        new TextBlock
-                        {
-                            Text = "Max 2 players",
-                            FontSize = 12,
-                            TextAlignment = TextAlignment.Center,
-                            Margin = new Thickness(8, 0, 8, 4)
-                        }
-                    }
+                        Content = $"{sp.Player.Name} - HCP: {sp.Handicap:F1} - Games: {sp.Player.GamesPlayed}",
+                        IsChecked = sp.IsSelected,
+                        Tag = sp,
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+
+                    checkbox.Checked += (s, e) =>
+                    {
+                        sp.IsSelected = true;
+                        UpdatePlayerDisplay();
+                    };
+
+                    checkbox.Unchecked += (s, e) =>
+                    {
+                        sp.IsSelected = false;
+                        UpdatePlayerDisplay();
+                    };
+
+                    if (sp.Division == "A") divAPanel.Children.Add(checkbox);
+                    else if (sp.Division == "B") divBPanel.Children.Add(checkbox);
+                    else if (sp.Division == "C") divCPanel.Children.Add(checkbox);
                 }
-            };
-            divCScroll.Height = 320;
-            divCScroll.Margin = new Thickness(8, 0, 8, 8);
-            ((StackPanel)divCBorder.Child).Children.Add(divCScroll);
-            Grid.SetColumn(divCBorder, 2);
-            divisionsGrid.Children.Add(divCBorder);
 
-            // Build main content
-            var content = new StackPanel
-            {
-                Spacing = 12,
-                Children =
+                // Build horizontal division layout
+                var divisionsGrid = new Grid
                 {
-                    new TextBlock
+                    ColumnDefinitions =
                     {
-                        Text = $"Team for: {clubShortName} @ {venue} ({gameDate:d})",
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                        TextAlignment = TextAlignment.Center
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
                     },
-                    new TextBlock
+                    Height = 400,
+                    Margin = new Thickness(0, 12, 0, 0)
+                };
+
+                // Division A
+                var divABorder = new Border
+                {
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
+                    BorderThickness = new Thickness(1),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    Child = new StackPanel
                     {
-                        Text = "Click on a division to scroll its players independently",
-                        FontSize = 11,
-                        FontStyle = Windows.UI.Text.FontStyle.Italic,
-                        TextAlignment = TextAlignment.Center,
-                        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray)
-                    },
-                    divisionsGrid,
-                    selectionStatus,
-                    validationStatus
+                        Spacing = 8,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "Division A (HCP 0.0 - 12.4)",
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 8, 8, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "Max 3 players",
+                                FontSize = 12,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 0, 8, 4)
+                            }
+                        }
+                    }
+                };
+                divAScroll.Height = 320;
+                divAScroll.Margin = new Thickness(8, 0, 8, 8);
+                ((StackPanel)divABorder.Child).Children.Add(divAScroll);
+                Grid.SetColumn(divABorder, 0);
+                divisionsGrid.Children.Add(divABorder);
+
+                // Division B
+                var divBBorder = new Border
+                {
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
+                    BorderThickness = new Thickness(1),
+                    Margin = new Thickness(4, 0, 4, 0),
+                    Child = new StackPanel
+                    {
+                        Spacing = 8,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "Division B (HCP 12.5 - 18.4)",
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 8, 8, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "Max 3 players",
+                                FontSize = 12,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 0, 8, 4)
+                            }
+                        }
+                    }
+                };
+                divBScroll.Height = 320;
+                divBScroll.Margin = new Thickness(8, 0, 8, 8);
+                ((StackPanel)divBBorder.Child).Children.Add(divBScroll);
+                Grid.SetColumn(divBBorder, 1);
+                divisionsGrid.Children.Add(divBBorder);
+
+                // Division C
+                var divCBorder = new Border
+                {
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
+                    BorderThickness = new Thickness(1),
+                    Margin = new Thickness(4, 0, 0, 0),
+                    Child = new StackPanel
+                    {
+                        Spacing = 8,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "Division C (HCP 18.5 - 24.4)",
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 8, 8, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "Max 2 players",
+                                FontSize = 12,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(8, 0, 8, 4)
+                            }
+                        }
+                    }
+                };
+                divCScroll.Height = 320;
+                divCScroll.Margin = new Thickness(8, 0, 8, 8);
+                ((StackPanel)divCBorder.Child).Children.Add(divCScroll);
+                Grid.SetColumn(divCBorder, 2);
+                divisionsGrid.Children.Add(divCBorder);
+
+                // Build main content
+                var content = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"Team for: {clubShortName} @ {venue} ({gameDate:d})",
+                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                            TextAlignment = TextAlignment.Center
+                        },
+                        new TextBlock
+                        {
+                            Text = "Click on a division to scroll its players independently",
+                            FontSize = 11,
+                            FontStyle = Windows.UI.Text.FontStyle.Italic,
+                            TextAlignment = TextAlignment.Center,
+                            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray)
+                        },
+                        divisionsGrid,
+                        selectionStatus,
+                        validationStatus
+                    }
+                };
+
+                // Show dialog with three buttons
+                var dialog = new ContentDialog
+                {
+                    Title = "Create Team - Select Players",
+                    Content = content,
+                    PrimaryButtonText = "Finalize Team",
+                    SecondaryButtonText = "Save Draft",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content?.XamlRoot
+                };
+
+                UpdatePlayerDisplay();
+
+                if (this.Content?.XamlRoot == null)
+                {
+                    UpdateStatus("UI not ready.");
+                    return;
                 }
-            };
 
-            // Show dialog with three buttons
-            var dialog = new ContentDialog
-            {
-                Title = "Create Team - Select Players",
-                Content = content,
-                PrimaryButtonText = "Finalize Team",
-                SecondaryButtonText = "Save Draft",
-                CloseButtonText = "Cancel",
-                XamlRoot = this.Content?.XamlRoot
-            };
+                var result = await dialog.ShowAsync();
 
-            UpdatePlayerDisplay();
-
-            if (this.Content?.XamlRoot == null)
-            {
-                UpdateStatus("UI not ready.");
-                return;
-            }
-
-            var result = await dialog.ShowAsync();
-
-            if (result == ContentDialogResult.Primary)
-            {
-                // Finalize Team - validate and export CSV
-                await FinalizeTeamAsync(clubShortName, venue, gameDate, allSelectablePlayers, currentDraftId);
-            }
-            else if (result == ContentDialogResult.Secondary)
-            {
-                // Save Draft
-                await SaveDraftAsync(clubShortName, venue, gameDate, allSelectablePlayers, currentDraftId);
-            }
-            else
-            {
-                UpdateStatus("Team selection cancelled.");
+                if (result == ContentDialogResult.Primary)
+                {
+                    // Finalize Team - validate and export CSV
+                    var finalizeResult = await FinalizeTeamAsync(clubShortName, venue, gameDate, allSelectablePlayers, currentDraftId);
+                    if (finalizeResult)
+                    {
+                        // Success - exit loop
+                        keepDialogOpen = false;
+                    }
+                    // else: validation failed, loop continues and dialog reopens
+                }
+                else if (result == ContentDialogResult.Secondary)
+                {
+                    // Save Draft
+                    await SaveDraftAsync(clubShortName, venue, gameDate, allSelectablePlayers, currentDraftId);
+                    // Exit after saving draft
+                    keepDialogOpen = false;
+                }
+                else
+                {
+                    // Cancel - exit loop
+                    UpdateStatus("Team selection cancelled.");
+                    keepDialogOpen = false;
+                }
             }
         }
 
@@ -671,7 +685,7 @@ namespace GolfApp1
         // FINALIZE TEAM
         // ============================================================================
 
-        private async Task FinalizeTeamAsync(string clubShortName, string venue, DateTime gameDate,
+        private async Task<bool> FinalizeTeamAsync(string clubShortName, string venue, DateTime gameDate,
             List<SelectablePlayer> allPlayers, string? existingDraftId)
         {
             var selectedPlayers = allPlayers.Where(p => p.IsSelected).ToList();
@@ -679,7 +693,7 @@ namespace GolfApp1
             if (selectedPlayers.Count == 0)
             {
                 await ShowErrorAsync("Finalize Team", "No players selected.");
-                return;
+                return false;
             }
 
             // Validate counts (≤ max)
@@ -695,15 +709,17 @@ namespace GolfApp1
                 if (divCCount > 2) issues.Add($"Division C: {divCCount} players (max 2)");
 
                 await ShowErrorAsync("Validation Failed",
-                    $"Cannot finalize team:\n\n{string.Join("\n", issues)}\n\nPlease adjust your selection.");
-                return;
+                    $"Cannot finalize team:\n\n{string.Join("\n", issues)}\n\nPlease adjust your selection and try again.");
+
+                // Return false to keep dialog open
+                return false;
             }
 
             // Export to CSV
-            await ExportTeamToCsvAsync(clubShortName, venue, gameDate, selectedPlayers, existingDraftId);
+            return await ExportTeamToCsvAsync(clubShortName, venue, gameDate, selectedPlayers, existingDraftId);
         }
 
-        private async Task ExportTeamToCsvAsync(string clubShortName, string venue, DateTime gameDate,
+        private async Task<bool> ExportTeamToCsvAsync(string clubShortName, string venue, DateTime gameDate,
             List<SelectablePlayer> selectedPlayers, string? existingDraftId)
         {
             try
@@ -754,15 +770,19 @@ namespace GolfApp1
                     UpdateStatus($"Team finalized and exported: {savedFile.Name}");
                     await ShowErrorAsync("Team Finalized",
                         $"✅ Team finalized and exported successfully!\n\n{savedFile.Path}\n\nPlayers: {sortedPlayers.Count}\n\nDraft has been deleted.");
+
+                    return true; // Success
                 }
                 else
                 {
                     UpdateStatus("Export cancelled.");
+                    return false; // User cancelled file picker
                 }
             }
             catch (Exception ex)
             {
                 await ShowErrorAsync("Export Error", $"Failed to export team:\n{ex.Message}");
+                return false; // Error occurred
             }
         }
 
