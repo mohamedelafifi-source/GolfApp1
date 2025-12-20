@@ -393,66 +393,6 @@ namespace GolfApp1
                     }
                 }
 
-                // Update display
-                void UpdatePlayerDisplay()
-                {
-                    var selectedCount = allSelectablePlayers.Count(p => p.IsSelected);
-                    var divACount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "A");
-                    var divBCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "B");
-                    var divCCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "C");
-
-                    selectionStatus.Text = $"Selected: Division A ({divACount}/3) | Division B ({divBCount}/3) | Division C ({divCCount}/2) | Total: {selectedCount}";
-
-                    // Validation for finalize (≤ max players)
-                    bool valid = divACount <= 3 && divBCount <= 3 && divCCount <= 2;
-                    if (!valid)
-                    {
-                        var issues = new List<string>();
-                        if (divACount > 3) issues.Add($"Division A has {divACount} (max 3)");
-                        if (divBCount > 3) issues.Add($"Division B has {divBCount} (max 3)");
-                        if (divCCount > 2) issues.Add($"Division C has {divCCount} (max 2)");
-                        validationStatus.Text = $"⚠️ {string.Join(", ", issues)}";
-                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
-                    }
-                    else if (selectedCount > 0)
-                    {
-                        validationStatus.Text = "✓ Ready to save or finalize";
-                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
-                    }
-                    else
-                    {
-                        validationStatus.Text = "";
-                    }
-                }
-
-                // Create checkboxes for each player
-                foreach (var sp in allSelectablePlayers)
-                {
-                    var checkbox = new CheckBox
-                    {
-                        Content = $"{sp.Player.Name} - HCP: {sp.Handicap:F1} - Games: {sp.Player.GamesPlayed}",
-                        IsChecked = sp.IsSelected,
-                        Tag = sp,
-                        Margin = new Thickness(0, 2, 0, 2)
-                    };
-
-                    checkbox.Checked += (s, e) =>
-                    {
-                        sp.IsSelected = true;
-                        UpdatePlayerDisplay();
-                    };
-
-                    checkbox.Unchecked += (s, e) =>
-                    {
-                        sp.IsSelected = false;
-                        UpdatePlayerDisplay();
-                    };
-
-                    if (sp.Division == "A") divAPanel.Children.Add(checkbox);
-                    else if (sp.Division == "B") divBPanel.Children.Add(checkbox);
-                    else if (sp.Division == "C") divCPanel.Children.Add(checkbox);
-                }
-
                 // Build horizontal division layout
                 var divisionsGrid = new Grid
                 {
@@ -602,8 +542,73 @@ namespace GolfApp1
                     PrimaryButtonText = "Finalize Team",
                     SecondaryButtonText = "Save Draft",
                     CloseButtonText = "Cancel",
+                    IsPrimaryButtonEnabled = false, // Disabled initially
                     XamlRoot = this.Content?.XamlRoot
                 };
+
+                // Update display - NOW ALSO CONTROLS FINALIZE BUTTON STATE
+                void UpdatePlayerDisplay()
+                {
+                    var selectedCount = allSelectablePlayers.Count(p => p.IsSelected);
+                    var divACount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "A");
+                    var divBCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "B");
+                    var divCCount = allSelectablePlayers.Count(p => p.IsSelected && p.Division == "C");
+
+                    selectionStatus.Text = $"Selected: Division A ({divACount}/3) | Division B ({divBCount}/3) | Division C ({divCCount}/2) | Total: {selectedCount}";
+
+                    // Validation for finalize (≤ max players)
+                    bool valid = divACount <= 3 && divBCount <= 3 && divCCount <= 2;
+
+                    // DISABLE FINALIZE BUTTON if validation fails
+                    dialog.IsPrimaryButtonEnabled = valid && selectedCount > 0;
+
+                    if (!valid)
+                    {
+                        var issues = new List<string>();
+                        if (divACount > 3) issues.Add($"Division A has {divACount} (max 3)");
+                        if (divBCount > 3) issues.Add($"Division B has {divBCount} (max 3)");
+                        if (divCCount > 2) issues.Add($"Division C has {divCCount} (max 2)");
+                        validationStatus.Text = $"⚠️ {string.Join(", ", issues)}";
+                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
+                    }
+                    else if (selectedCount > 0)
+                    {
+                        validationStatus.Text = "✓ Ready to save or finalize";
+                        validationStatus.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+                    }
+                    else
+                    {
+                        validationStatus.Text = "";
+                    }
+                }
+
+                // Create checkboxes for each player
+                foreach (var sp in allSelectablePlayers)
+                {
+                    var checkbox = new CheckBox
+                    {
+                        Content = $"{sp.Player.Name} - HCP: {sp.Handicap:F1} - Games: {sp.Player.GamesPlayed}",
+                        IsChecked = sp.IsSelected,
+                        Tag = sp,
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+
+                    checkbox.Checked += (s, e) =>
+                    {
+                        sp.IsSelected = true;
+                        UpdatePlayerDisplay();
+                    };
+
+                    checkbox.Unchecked += (s, e) =>
+                    {
+                        sp.IsSelected = false;
+                        UpdatePlayerDisplay();
+                    };
+
+                    if (sp.Division == "A") divAPanel.Children.Add(checkbox);
+                    else if (sp.Division == "B") divBPanel.Children.Add(checkbox);
+                    else if (sp.Division == "C") divCPanel.Children.Add(checkbox);
+                }
 
                 UpdatePlayerDisplay();
 
@@ -696,7 +701,7 @@ namespace GolfApp1
                 return false;
             }
 
-            // Validate counts (≤ max)
+            // Validate counts (≤ max) - This should never fail now since button is disabled
             var divACount = selectedPlayers.Count(p => p.Division == "A");
             var divBCount = selectedPlayers.Count(p => p.Division == "B");
             var divCCount = selectedPlayers.Count(p => p.Division == "C");
