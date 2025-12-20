@@ -91,6 +91,57 @@ CREATE TABLE IF NOT EXISTS Results (
                 idxCmd.CommandText = "CREATE INDEX IF NOT EXISTS IDX_Results_Club_Date ON Results(ClubShortName, Date);";
                 await idxCmd.ExecuteNonQueryAsync();
             }
+
+            // Initialize Team Drafts tables
+            await InitializeTeamDraftsTablesAsync();
+        }
+
+        // ============================================================================
+        // TEAM DRAFTS TABLES - NEW
+        // ============================================================================
+
+        private async Task InitializeTeamDraftsTablesAsync()
+        {
+            try
+            {
+                var createDraftsTable = @"
+CREATE TABLE IF NOT EXISTS TeamDrafts (
+    Id TEXT PRIMARY KEY,
+    ClubShortName TEXT NOT NULL,
+    Venue TEXT NOT NULL,
+    GameDate TEXT NOT NULL,
+    CreatedDate TEXT NOT NULL,
+    LastModified TEXT NOT NULL,
+    UNIQUE(ClubShortName, Venue, GameDate)
+);";
+
+                var createDraftPlayersTable = @"
+CREATE TABLE IF NOT EXISTS TeamDraftPlayers (
+    DraftId TEXT NOT NULL,
+    PlayerId TEXT NOT NULL,
+    Division TEXT NOT NULL,
+    Handicap REAL NOT NULL,
+    FOREIGN KEY(DraftId) REFERENCES TeamDrafts(Id) ON DELETE CASCADE,
+    FOREIGN KEY(PlayerId) REFERENCES Players(Id) ON DELETE CASCADE,
+    PRIMARY KEY(DraftId, PlayerId)
+);";
+
+                using (var cmd = _conn!.CreateCommand())
+                {
+                    cmd.CommandText = createDraftsTable;
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                using (var cmd = _conn.CreateCommand())
+                {
+                    cmd.CommandText = createDraftPlayersTable;
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error initializing team drafts tables: {ex.Message}");
+            }
         }
 
         // ============================================================================
@@ -936,6 +987,213 @@ SET GamesPlayed = (
             catch (Exception ex)
             {
                 return ex.Message;
+            }
+        }
+
+        // ============================================================================
+        // TEAM DRAFTS METHODS - NEW
+        // ============================================================================
+
+        /// <summary>
+        /// Check if a draft exists for the given club, venue, and date combination.
+        /// Returns (exists, draftId, lastModified).
+        /// </summary>
+        public async Task<(bool exists, string? draftId, DateTime? lastModified)> CheckDraftExistsAsync(string clubShortName, string venue, DateTime gameDate)
+        {
+            try
+            {
+                if (_conn is null) return (false, null, null);
+
+                var query = @"
+SELECT Id, LastModified 
+FROM TeamDrafts 
+WHERE ClubShortName = $club 
+  AND Venue = $venue 
+  AND GameDate = $date";
+
+                using var cmd = _conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("$club", clubShortName);
+                cmd.Parameters.AddWithValue("$venue", venue);
+                cmd.Parameters.AddWithValue("$date", gameDate.ToString("yyyy-MM-dd"));
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var draftId = reader.GetString(0);
+                    var lastModified = DateTime.Parse(reader.GetString(1));
+                    return (true, draftId, lastModified);
+                }
+
+                return (false, null, null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error checking draft: {ex.Message}");
+                return (false, null, null);
+            }
+        }
+
+        /// <summary>
+        /// Load draft players by draft ID.
+        /// Returns list of (PlayerId, PlayerName, PlayerCode, Division, Handicap, GamesPlayed).
+        /// </summary>
+        public async Task<List<(string PlayerId, string PlayerName, string PlayerCode, string Division, double Handicap, int GamesPlayed)>?> LoadDraftPlayersAsync(string draftId)
+        {
+            try
+            {
+                if (_conn is null) return null;
+
+                var query = @"
+SELECT 
+    tdp.PlayerId,
+    p.Name,
+    p.Code,
+    tdp.Division,
+    tdp.Handicap,
+    COALESCE(p.GamesPlayed, 0)
+FROM TeamDraftPlayers tdp
+INNER JOIN Players p ON tdp.PlayerId = p.Id
+WHERE tdp.DraftId = $draftId
+ORDER BY tdp.Division, p.Name";
+
+                using var cmd = _conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("$draftId", draftId);
+
+                var players = new List<(string, string, string, string, double, int)>();
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    players.Add((
+                        reader.GetString(0),  // PlayerId
+                        reader.GetString(1),  // PlayerName
+                        reader.GetString(2),  // PlayerCode
+                        reader.GetString(3),  // Division
+                        reader.GetDouble(4),  // Handicap
+                        reader.GetInt32(5)    // GamesPlayed
+                    ));
+                }
+
+                return players;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading draft players: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Save or update a team draft.
+        /// Returns (success, draftId, error).
+        /// </summary>
+        public async Task<(bool success, string? draftId, string? error)> SaveDraftAsync(
+            string? existingDraftId,
+            string clubShortName,
+            string venue,
+            DateTime gameDate,
+            List<(string PlayerId, string Division, double Handicap)> selectedPlayers)
+        {
+            try
+            {
+                if (_conn is null) return (false, null, "Database not initialized.");
+
+                using var tran = _conn.BeginTransaction();
+
+                string draftId;
+                var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+                if (string.IsNullOrEmpty(existingDraftId))
+                {
+                    // Create new draft
+                    draftId = Guid.NewGuid().ToString();
+                    var insertDraft = @"
+INSERT INTO TeamDrafts (Id, ClubShortName, Venue, GameDate, CreatedDate, LastModified)
+VALUES ($id, $club, $venue, $date, $now, $now)";
+
+                    using var cmd = _conn.CreateCommand();
+                    cmd.Transaction = tran;
+                    cmd.CommandText = insertDraft;
+                    cmd.Parameters.AddWithValue("$id", draftId);
+                    cmd.Parameters.AddWithValue("$club", clubShortName);
+                    cmd.Parameters.AddWithValue("$venue", venue);
+                    cmd.Parameters.AddWithValue("$date", gameDate.ToString("yyyy-MM-dd"));
+                    cmd.Parameters.AddWithValue("$now", now);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                else
+                {
+                    // Update existing draft
+                    draftId = existingDraftId;
+                    var updateDraft = "UPDATE TeamDrafts SET LastModified = $now WHERE Id = $id";
+
+                    using var cmd = _conn.CreateCommand();
+                    cmd.Transaction = tran;
+                    cmd.CommandText = updateDraft;
+                    cmd.Parameters.AddWithValue("$now", now);
+                    cmd.Parameters.AddWithValue("$id", draftId);
+                    await cmd.ExecuteNonQueryAsync();
+
+                    // Delete old players
+                    var deletePlayers = "DELETE FROM TeamDraftPlayers WHERE DraftId = $id";
+                    using var delCmd = _conn.CreateCommand();
+                    delCmd.Transaction = tran;
+                    delCmd.CommandText = deletePlayers;
+                    delCmd.Parameters.AddWithValue("$id", draftId);
+                    await delCmd.ExecuteNonQueryAsync();
+                }
+
+                // Insert selected players
+                if (selectedPlayers.Count > 0)
+                {
+                    var insertPlayer = @"
+INSERT INTO TeamDraftPlayers (DraftId, PlayerId, Division, Handicap)
+VALUES ($draftId, $playerId, $division, $handicap)";
+
+                    foreach (var player in selectedPlayers)
+                    {
+                        using var cmd = _conn.CreateCommand();
+                        cmd.Transaction = tran;
+                        cmd.CommandText = insertPlayer;
+                        cmd.Parameters.AddWithValue("$draftId", draftId);
+                        cmd.Parameters.AddWithValue("$playerId", player.PlayerId);
+                        cmd.Parameters.AddWithValue("$division", player.Division);
+                        cmd.Parameters.AddWithValue("$handicap", player.Handicap);
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tran.CommitAsync();
+                return (true, draftId, null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving draft: {ex.Message}");
+                return (false, null, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Delete a draft after finalization.
+        /// </summary>
+        public async Task<bool> DeleteDraftAsync(string draftId)
+        {
+            try
+            {
+                if (_conn is null) return false;
+
+                var deleteDraft = "DELETE FROM TeamDrafts WHERE Id = $id";
+                using var cmd = _conn.CreateCommand();
+                cmd.CommandText = deleteDraft;
+                cmd.Parameters.AddWithValue("$id", draftId);
+                await cmd.ExecuteNonQueryAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error deleting draft: {ex.Message}");
+                return false;
             }
         }
 
