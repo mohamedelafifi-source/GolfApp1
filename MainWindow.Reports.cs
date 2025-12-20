@@ -179,7 +179,7 @@ namespace GolfApp1
                     return;
                 }
 
-                // FILTER: Remove invalid entries (bad dates, missing venues) and deduplicate
+                // FILTER: Remove invalid entries (bad dates, missing venues) and deduplicate EXACT duplicates
                 var validResults = allResults
                     .Where(r => !string.IsNullOrWhiteSpace(r.Venue))  // Must have venue
                     .Where(r => r.Date.Year >= 2020)                  // Must have valid date (not DateTime.MinValue = 1601)
@@ -197,19 +197,34 @@ namespace GolfApp1
 
                 // Report how many invalid entries were filtered out
                 var filteredCount = allResults.Count - validResults.Count;
+
+                // OPTION 1: Show ONLY BEST result per player (one entry per player)
+                // Uncomment this block if you want only ONE result per player:
+                /*
+                var bestResultsPerPlayer = validResults
+                    .GroupBy(r => new { r.PlayerId, r.PlayerName, r.Club })
+                    .Select(g => g.OrderByDescending(r => r.Result).First())  // Take best result
+                    .OrderByDescending(r => r.Result)
+                    .ThenBy(r => r.PlayerName ?? string.Empty)
+                    .ToList();
+
+                var sortedResults = bestResultsPerPlayer;
+                */
+
+                // OPTION 2: Show ALL results but sorted by best score first (current behavior)
+                // This is the default - shows multiple entries per player if they played multiple games
+                var sortedResults = validResults
+                    .OrderByDescending(r => r.Result)  // Best scores first (highest points)
+                    .ThenBy(r => r.PlayerName ?? string.Empty)
+                    .ThenBy(r => r.Venue ?? string.Empty)
+                    .ThenBy(r => r.Date)
+                    .ThenBy(r => r.Hcp)
+                    .ToList();
+
                 if (filteredCount > 0)
                 {
                     UpdateStatus($"Filtered out {filteredCount} invalid/duplicate entries from report.");
                 }
-
-                // Sort results: by Venue, then Date, then Result (descending - best score first), then Handicap (ascending), then Player Name
-                var sortedResults = validResults
-                    .OrderBy(r => r.Venue ?? string.Empty)
-                    .ThenBy(r => r.Date)
-                    .ThenByDescending(r => r.Result)
-                    .ThenBy(r => r.Hcp)
-                    .ThenBy(r => r.PlayerName ?? string.Empty)
-                    .ToList();
 
                 // Generate CSV content
                 var csvContent = GenerateAllPlayersReportCsv(sortedResults);
@@ -219,7 +234,7 @@ namespace GolfApp1
                 if (savedFile != null)
                 {
                     UpdateStatus($"Report saved: {savedFile.Name}");
-                    await ShowErrorAsync("Report Saved", $"All players report saved successfully to:\n{savedFile.Path}\n\nFiltered out {filteredCount} invalid/duplicate entries.");
+                    await ShowErrorAsync("Report Saved", $"All players report saved successfully to:\n{savedFile.Path}\n\nTotal results: {sortedResults.Count}\nFiltered out {filteredCount} invalid/duplicate entries.");
                 }
                 else
                 {
@@ -233,7 +248,7 @@ namespace GolfApp1
             }
         }
 
-        
+
         private async Task<string?> ShowVenueSelectionForReportAsync(List<string> venues)
         {
             var comboBox = new ComboBox
