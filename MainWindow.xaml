@@ -43,8 +43,15 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="New Results" Click="OnNewResultsClicked" />
                         <MenuFlyoutItem Text="Existing Results" Click="OnExistingResultsClicked" />
-                        <MenuFlyoutSeparator />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+
+            <Button Content="Teams">
+                <Button.Flyout>
+                    <MenuFlyout>
                         <MenuFlyoutItem Text="Create Team" Click="OnCreateTeamClicked" />
+                        <MenuFlyoutItem Text="Create Game" Click="OnCreateGameClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
