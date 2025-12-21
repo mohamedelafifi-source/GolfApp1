@@ -15,6 +15,8 @@ namespace GolfApp1
         // Handler for "New Results" menu item
         private async void OnNewResultsClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null || _vm is null)
             {
                 UpdateStatus("Database not initialized.");

@@ -20,6 +20,8 @@ namespace GolfApp1
 
         private async void OnClearResultsClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -100,6 +102,8 @@ namespace GolfApp1
 
         private async void OnBackupDatabaseClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -168,6 +172,8 @@ namespace GolfApp1
 
         private async void OnRestoreDatabaseClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -293,6 +299,8 @@ namespace GolfApp1
 
         private async void OnCleanDatabaseClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");

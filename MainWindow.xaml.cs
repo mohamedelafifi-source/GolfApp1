@@ -49,6 +49,8 @@ namespace GolfApp1
 
         private async void OnLoadFileClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             var picker = new Windows.Storage.Pickers.FileOpenPicker();
 
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -234,6 +236,8 @@ namespace GolfApp1
         //Stop at the first club if it exsists, otherwise at the first empty slot.
         private void OnFileNewClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             // Start at the first existing club, or first empty slot if no clubs exist
             _index = _clubs.Count > 0 ? 0 : _clubs.Count;
             EditorArea.Visibility = Visibility.Visible;
@@ -241,6 +245,7 @@ namespace GolfApp1
         }
         private void OnFileOpenClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
             UpdateStatus("Action: Create New Players - will be implemented next.");
         }
 
@@ -252,6 +257,7 @@ namespace GolfApp1
 
         private void OnEditSettingsClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
             UpdateStatus("Action: Edit -> Settings was clicked.");
         }
 
@@ -385,6 +391,8 @@ namespace GolfApp1
 
         private async void OnAddPlayerClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null) { UpdateStatus("Database not initialized."); return; }
             if (_index >= _clubs.Count) { UpdateStatus("Please save the club before adding players."); return; }
 
@@ -474,6 +482,8 @@ namespace GolfApp1
 
         private async void ExitPlayerMode()
         {
+            UpdateStatus(""); // Clear status
+
             _inPlayerMode = false;
             PlayerEditorPanel.Visibility = Visibility.Collapsed;
 
@@ -589,6 +599,8 @@ namespace GolfApp1
 
         private void OnEditorExitClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             try
             {
                 if (_inPlayerMode)

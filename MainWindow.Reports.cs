@@ -19,6 +19,8 @@ namespace GolfApp1
     {
         private async void OnReportByClubClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -141,6 +143,8 @@ namespace GolfApp1
 
         private async void OnReportByPlayerClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -466,6 +470,8 @@ namespace GolfApp1
         //=====
         private async void OnReportByAveragesClicked(object sender, RoutedEventArgs e)
         {
+            UpdateStatus(""); // Clear status
+
             if (_db is null)
             {
                 UpdateStatus("Database not initialized.");
@@ -582,6 +588,7 @@ namespace GolfApp1
                 await ShowErrorAsync("Report Error", $"Failed to generate averages report:\n{ex.Message}");
             }
         }
+
         private async Task<StorageFile?> SaveCsvFileAsync(string suggestedFileName, string content)
         {
             try
