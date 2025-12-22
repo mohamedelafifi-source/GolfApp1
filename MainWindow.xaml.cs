@@ -142,15 +142,24 @@ namespace GolfApp1
                 // Check app folder configuration first
                 await CheckAppFolderOnStartupAsync();
 
-                // Only proceed if folder is confirmed
+                // Only proceed if folder is confirmed AND database exists
                 if (!_appFolderConfirmed)
                 {
-                    UpdateStatus("⚠️ Please set the application data folder to continue.");
+                    UpdateStatus("⚠️ Please resolve the database issue before continuing.");
                     return;
                 }
 
                 var dataFolder = GetDataFolder();
                 var dbPath = Path.Combine(dataFolder, "golfapp.db");
+
+                // Double-check database file exists before attempting to initialize
+                if (!File.Exists(dbPath))
+                {
+                    UpdateStatus("⚠️ Database file not found. Use 'Database → Set App Folder' to resolve.");
+                    EnableMenuItems(false);
+                    return;
+                }
+
                 _db = new Database(dbPath);
                 await _db.InitializeAsync();
 
@@ -170,11 +179,14 @@ namespace GolfApp1
                 {
                     ShowCurrent();
                 }
+
+                UpdateStatus($"Database loaded: {_clubs.Count} club(s) found.");
             }
             catch (Exception ex)
             {
                 UpdateStatus("Initialization error: " + ex.Message);
                 await ShowErrorAsync("Initialization error", ex.Message);
+                EnableMenuItems(false);
             }
         }
         private void RefreshLocalClubsFromVm()

@@ -152,7 +152,7 @@ namespace GolfApp1
                     EnableMenuItems(true);
 
                     UpdateStatus($"App folder set to: {newFolder}");
-                    await ShowInfoAsync("Folder Set", $"Application data folder configured:\n\n{newFolder}\n\nAll data will be stored here.");
+                    await ShowErrorAsync("Folder Set", $"Application data folder configured:\n\n{newFolder}\n\nAll data will be stored here.");
 
                     // Reinitialize database with new path
                     await ReinitializeDatabaseWithFolderAsync(newFolder);
@@ -267,7 +267,7 @@ namespace GolfApp1
                     File.Copy(currentDbPath, newDbPath, overwrite: true);
 
                     UpdateStatus($"Database copied to new location.");
-                    await ShowInfoAsync("Migration Complete", $"Database successfully copied to:\n\n{newDbPath}");
+                    await ShowErrorAsync("Migration Complete", $"Database successfully copied to:\n\n{newDbPath}");
                 }
             }
             catch (Exception ex)
@@ -359,7 +359,7 @@ namespace GolfApp1
                     File.Copy(oldDbLocation, newDbPath, overwrite: true);
 
                     UpdateStatus($"? Database copied successfully ({oldSizeKB:N0} KB)");
-                    await ShowInfoAsync("Migration Complete", 
+                    await ShowErrorAsync("Migration Complete", 
                         $"Your database has been successfully copied!\n\n" +
                         $"Size: {oldSizeKB:N0} KB\n" +
                         $"Location: {newDbPath}\n\n" +
@@ -499,46 +499,42 @@ namespace GolfApp1
             }
             else
             {
-                // Folder configured - check if database exists and is valid
+                // Folder configured - check if database file exists
                 var dbPath = Path.Combine(configuredPath, "golfapp.db");
-                bool needsMigration = false;
 
                 if (!File.Exists(dbPath))
                 {
-                    // Check if there's an old database to migrate
-                    var oldDbLocation = AppSettings.GetCurrentDatabaseLocation();
-                    if (!string.IsNullOrWhiteSpace(oldDbLocation) && File.Exists(oldDbLocation))
-                    {
-                        needsMigration = true;
-                    }
+                    // DATABASE FILE MISSING - Show warning and disable menus
+                    EnableMenuItems(false);
+                    UpdateStatus("?? Database file not found. Please use 'Set App Folder' to resolve.");
+
+                    await ShowDatabaseMissingWarningAsync(configuredPath);
+
+                    // Don't confirm folder - leave menus disabled
+                    _appFolderConfirmed = false;
+                    return;
                 }
-                else
+
+                // Check if database is too small (likely empty or corrupted)
+                var fileInfo = new FileInfo(dbPath);
+                if (fileInfo.Length < 20 * 1024) // Less than 20KB
                 {
-                    // Check if existing DB is too small (likely empty)
-                    var fileInfo = new FileInfo(dbPath);
-                    if (fileInfo.Length < 20 * 1024) // Less than 20KB
+                    // Small database - check if there's a larger one elsewhere
+                    var oldDbLocation = AppSettings.GetCurrentDatabaseLocation();
+                    if (!string.IsNullOrWhiteSpace(oldDbLocation) && 
+                        File.Exists(oldDbLocation) && 
+                        oldDbLocation != dbPath)
                     {
-                        var oldDbLocation = AppSettings.GetCurrentDatabaseLocation();
-                        if (!string.IsNullOrWhiteSpace(oldDbLocation) && 
-                            File.Exists(oldDbLocation) && 
-                            oldDbLocation != dbPath)
+                        var oldFileInfo = new FileInfo(oldDbLocation);
+                        if (oldFileInfo.Length > fileInfo.Length)
                         {
-                            var oldFileInfo = new FileInfo(oldDbLocation);
-                            if (oldFileInfo.Length > fileInfo.Length)
-                            {
-                                needsMigration = true;
-                            }
+                            // Found a larger database - offer to migrate
+                            await OfferAutomaticMigrationAsync(configuredPath);
                         }
                     }
                 }
 
-                if (needsMigration)
-                {
-                    // Offer to migrate automatically
-                    await OfferAutomaticMigrationAsync(configuredPath);
-                }
-
-                // Confirm folder
+                // Database exists - confirm folder and enable menus
                 _confirmedAppFolder = configuredPath;
                 _appFolderConfirmed = true;
                 EnableMenuItems(true);
@@ -547,21 +543,85 @@ namespace GolfApp1
         }
 
         /// <summary>
-        /// Show info dialog
+        /// Show warning when database file is missing from configured folder
         /// </summary>
-        private async Task ShowInfoAsync(string title, string message)
+        private async Task ShowDatabaseMissingWarningAsync(string folderPath)
         {
-            var dialog = new ContentDialog
+            try
             {
-                Title = title,
-                Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-                CloseButtonText = "OK",
-                XamlRoot = this.Content?.XamlRoot
-            };
+                var dialog = new ContentDialog
+                {
+                    Title = "?? Database File Not Found",
+                    Content = new StackPanel
+                    {
+                        Spacing = 12,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "The database file (golfapp.db) is missing from the configured folder.",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed)
+                            },
+                            new TextBlock
+                            {
+                                Text = $"Expected location:\n{Path.Combine(folderPath, "golfapp.db")}",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                                FontSize = 11,
+                                Margin = new Thickness(0, 8, 0, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "Possible reasons:",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                Margin = new Thickness(0, 12, 0, 4)
+                            },
+                            new TextBlock
+                            {
+                                Text = "• The database file was deleted or moved\n• The file was renamed\n• You selected the wrong folder\n• This is a new installation",
+                                TextWrapping = TextWrapping.Wrap,
+                                Margin = new Thickness(20, 0, 0, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "What to do:",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                Margin = new Thickness(0, 12, 0, 4)
+                            },
+                            new TextBlock
+                            {
+                                Text = "1. If you moved/renamed the file: Restore it to the correct location\n2. If you selected the wrong folder: Use 'Database ? Set App Folder' to select the correct folder\n3. If this is intentional: Use 'Database ? Set App Folder' to start fresh",
+                                TextWrapping = TextWrapping.Wrap,
+                                Margin = new Thickness(20, 0, 0, 0)
+                            },
+                            new TextBlock
+                            {
+                                Text = "?? All menu items are disabled until the database file is found or a new folder is configured.",
+                                TextWrapping = TextWrapping.Wrap,
+                                FontStyle = Windows.UI.Text.FontStyle.Italic,
+                                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray),
+                                FontSize = 11,
+                                Margin = new Thickness(0, 12, 0, 0)
+                            }
+                        }
+                    },
+                    CloseButtonText = "OK",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = this.Content?.XamlRoot
+                };
 
-            if (this.Content?.XamlRoot != null)
+                if (this.Content?.XamlRoot != null)
+                {
+                    await dialog.ShowAsync();
+                }
+            }
+            catch (Exception ex)
             {
-                await dialog.ShowAsync();
+                System.Diagnostics.Debug.WriteLine($"Error showing database missing warning: {ex.Message}");
             }
         }
     }
