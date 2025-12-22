@@ -20,6 +20,15 @@ namespace GolfApp1.Data
 
         public async Task InitializeAsync()
         {
+            // SAFETY CHECK: Do NOT create database if file doesn't exist
+            if (!System.IO.File.Exists(_path))
+            {
+                throw new System.IO.FileNotFoundException(
+                    $"Database file not found: {_path}. " +
+                    "The application will not create a new database automatically. " +
+                    "Please use 'Database ? Set App Folder' to configure the correct location.");
+            }
+
             var cs = new SqliteConnectionStringBuilder { DataSource = _path }.ToString();
             _conn = new SqliteConnection(cs);
             await _conn.OpenAsync();
