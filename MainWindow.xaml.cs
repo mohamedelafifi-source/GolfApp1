@@ -1,5 +1,6 @@
 //MainWindow.xaml.cs
 //=====================
+using GolfApp1;
 using GolfApp1.Data;
 using GolfApp1.Models;
 using GolfApp1.ViewModels;
@@ -133,10 +134,21 @@ namespace GolfApp1
             // Reuse existing Add/Update logic implemented in OnUpdatePlayerClicked
             OnUpdatePlayerClicked(sender, e);
         }
+        
         private async Task InitializeAsync()
         {
             try
             {
+                // Check app folder configuration first
+                await CheckAppFolderOnStartupAsync();
+
+                // Only proceed if folder is confirmed
+                if (!_appFolderConfirmed)
+                {
+                    UpdateStatus("⚠️ Please set the application data folder to continue.");
+                    return;
+                }
+
                 var dataFolder = GetDataFolder();
                 var dbPath = Path.Combine(dataFolder, "golfapp.db");
                 _db = new Database(dbPath);
@@ -165,7 +177,6 @@ namespace GolfApp1
                 await ShowErrorAsync("Initialization error", ex.Message);
             }
         }
-
         private void RefreshLocalClubsFromVm()
         {
             _clubs.Clear();
@@ -177,24 +188,32 @@ namespace GolfApp1
         {
             StatusLabel.Text = message;
         }
-
-        private static string GetDataFolder()
+        
+    private static string GetDataFolder()
+    {
+        // Check for user-configured folder first
+        var configuredPath = AppSettings.GetAppDataFolderPath();
+        if (!string.IsNullOrWhiteSpace(configuredPath) && Directory.Exists(configuredPath))
         {
-            try
-            {
-                var appData = ApplicationData.Current;
-                var path = appData?.LocalFolder?.Path;
-                if (!string.IsNullOrWhiteSpace(path)) return path;
-            }
-            catch { /* may fail in unpackaged scenarios */ }
-
-            return AppStorage.GetDataFolder();
+            return configuredPath;
         }
 
-        // ---------------- Club UI helpers ----------------
+        // Fallback to default location
+        try
+        {
+            var appData = ApplicationData.Current;
+            var path = appData?.LocalFolder?.Path;
+            if (!string.IsNullOrWhiteSpace(path)) return path;
+        }
+        catch { /* may fail in unpackaged scenarios */ }
 
-        // Replace the ShowCurrent method in MainWindow.xaml.cs with this updated implementation.
-        private void ShowCurrent()
+        return AppStorage.GetDataFolder();
+    }
+
+// ---------------- Club UI helpers ----------------
+
+// Replace the ShowCurrent method in MainWindow.xaml.cs with this updated implementation.
+private void ShowCurrent()
         {
             var total = _clubs.Count + 1;
             var shown = Math.Min(Math.Max(_index + 1, 1), total);
