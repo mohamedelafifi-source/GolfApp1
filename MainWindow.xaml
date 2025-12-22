@@ -195,7 +195,7 @@
                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,16" x:Name="ClubButtonsPanel">
                     <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
                     <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
-                    <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" />
                     <Button x:Name="DeleteClubButton" Content="Delete Club" Click="OnDeleteClubClicked" Margin="8,0,0,0" />
                     <Button x:Name="AddPlayerButton" Content="Edit Players" Click="OnAddPlayerClicked" Width="110" />
                     <Button x:Name="LoadFileButton" Content="Import Players" Click="OnBulkAddClicked" Width="160" />
