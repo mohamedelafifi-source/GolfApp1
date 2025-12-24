@@ -432,30 +432,27 @@ namespace GolfApp1
         private void EnableMenuItems(bool enabled)
         {
             // Database menu items (except Set App Folder)
-            // TEMPORARILY COMMENTED OUT - These menu items will be added when we update MainWindow.xaml
-            // if (ClearResultsMenuItem != null) ClearResultsMenuItem.IsEnabled = enabled;
-            // if (BackupDatabaseMenuItem != null) BackupDatabaseMenuItem.IsEnabled = enabled;
-            // if (RestoreDatabaseMenuItem != null) RestoreDatabaseMenuItem.IsEnabled = enabled;
-            // if (CleanDatabaseMenuItem != null) CleanDatabaseMenuItem.IsEnabled = enabled;
+            if (ClearResultsMenuItem != null) ClearResultsMenuItem.IsEnabled = enabled;
+            if (BackupDatabaseMenuItem != null) BackupDatabaseMenuItem.IsEnabled = enabled;
+            if (RestoreDatabaseMenuItem != null) RestoreDatabaseMenuItem.IsEnabled = enabled;
+            if (CleanDatabaseMenuItem != null) CleanDatabaseMenuItem.IsEnabled = enabled;
 
             // Data menu button and items
-            // if (DataButton != null) DataButton.IsEnabled = enabled;
-            // if (ClubDataMenuItem != null) ClubDataMenuItem.IsEnabled = enabled;
-            // if (NewResultsMenuItem != null) NewResultsMenuItem.IsEnabled = enabled;
-            // if (ExistingResultsMenuItem != null) ExistingResultsMenuItem.IsEnabled = enabled;
+            if (DataButton != null) DataButton.IsEnabled = enabled;
+            if (ClubDataMenuItem != null) ClubDataMenuItem.IsEnabled = enabled;
+            if (NewResultsMenuItem != null) NewResultsMenuItem.IsEnabled = enabled;
+            if (ExistingResultsMenuItem != null) ExistingResultsMenuItem.IsEnabled = enabled;
 
-            // Teams menu button and items - NEW (not in old version yet)
-            // if (TeamsButton != null) TeamsButton.IsEnabled = enabled;
-            // if (CreateTeamMenuItem != null) CreateTeamMenuItem.IsEnabled = enabled;
-            // if (CreateGameMenuItem != null) CreateGameMenuItem.IsEnabled = enabled;
+            // Teams menu button and items
+            if (TeamsButton != null) TeamsButton.IsEnabled = enabled;
+            if (CreateTeamMenuItem != null) CreateTeamMenuItem.IsEnabled = enabled;
+            if (CreateGameMenuItem != null) CreateGameMenuItem.IsEnabled = enabled;
 
             // Reports menu button and items
-            // if (ReportsButton != null) ReportsButton.IsEnabled = enabled;
-            // if (ReportByClubMenuItem != null) ReportByClubMenuItem.IsEnabled = enabled;
-            // if (ReportByPlayerMenuItem != null) ReportByPlayerMenuItem.IsEnabled = enabled;
-            // if (ReportByAveragesMenuItem != null) ReportByAveragesMenuItem.IsEnabled = enabled;
-            
-            // TODO: Uncomment these when MainWindow.xaml is updated with new menu structure
+            if (ReportsButton != null) ReportsButton.IsEnabled = enabled;
+            if (ReportByClubMenuItem != null) ReportByClubMenuItem.IsEnabled = enabled;
+            if (ReportByPlayerMenuItem != null) ReportByPlayerMenuItem.IsEnabled = enabled;
+            if (ReportByAveragesMenuItem != null) ReportByAveragesMenuItem.IsEnabled = enabled;
         }
 
         /// <summary>
