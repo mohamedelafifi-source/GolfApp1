@@ -1,4 +1,4 @@
-// MainWindow.CreateGame.cs
+﻿// MainWindow.CreateGame.cs
 //===========================
 // VERSION: 2024-12-21 22:00 UTC - Fixed player counts per division
 // BUILD TIMESTAMP: 2024-12-21 22:00:00 UTC

@@ -24,13 +24,11 @@
             <Button Content="Database">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem x:Name="SetAppFolderMenuItem" Text="Set App Folder..." Click="OnSetAppFolderClicked" FontWeight="SemiBold" />
+                        <MenuFlyoutItem Text="Clear Results" Click="OnClearResultsClicked" />
                         <MenuFlyoutSeparator />
-                        <MenuFlyoutItem x:Name="ClearResultsMenuItem" Text="Clear Results" Click="OnClearResultsClicked" />
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem x:Name="BackupDatabaseMenuItem" Text="Backup Database" Click="OnBackupDatabaseClicked" />
-                        <MenuFlyoutItem x:Name="RestoreDatabaseMenuItem" Text="Restore Database" Click="OnRestoreDatabaseClicked" />
-                        <MenuFlyoutItem x:Name="CleanDatabaseMenuItem" Text="Clean Database" Click="OnCleanDatabaseClicked" />
+                        <MenuFlyoutItem Text="Backup Database" Click="OnBackupDatabaseClicked" />
+                        <MenuFlyoutItem Text="Restore Database" Click="OnRestoreDatabaseClicked" />
+                        <MenuFlyoutItem Text="Clean Database" Click="OnCleanDatabaseClicked" />
 
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnFileExitClicked" />
@@ -38,32 +36,25 @@
                 </Button.Flyout>
             </Button>
 
-            <Button x:Name="DataButton" Content="Data">
+            <Button Content="Data">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem x:Name="ClubDataMenuItem" Text="Club Data" Click="OnFileNewClicked" />
+                        <MenuFlyoutItem Text="Club Data" Click="OnFileNewClicked" />
                         <MenuFlyoutSeparator />
-                        <MenuFlyoutItem x:Name="NewResultsMenuItem" Text="New Results" Click="OnNewResultsClicked" />
-                        <MenuFlyoutItem x:Name="ExistingResultsMenuItem" Text="Existing Results" Click="OnExistingResultsClicked" />
+                        <MenuFlyoutItem Text="New Results" Click="OnNewResultsClicked" />
+                        <MenuFlyoutItem Text="Existing Results" Click="OnExistingResultsClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Create Team" Click="OnCreateTeamClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
 
-            <Button x:Name="TeamsButton" Content="Teams">
+            <Button Content="Reports">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem x:Name="CreateTeamMenuItem" Text="Create Team" Click="OnCreateTeamClicked" />
-                        <MenuFlyoutItem x:Name="CreateGameMenuItem" Text="Create Game" Click="OnCreateGameClicked" />
-                    </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-
-            <Button x:Name="ReportsButton" Content="Reports">
-                <Button.Flyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem x:Name="ReportByClubMenuItem" Text="By Club" Click="OnReportByClubClicked" />
-                        <MenuFlyoutItem x:Name="ReportByPlayerMenuItem" Text="All Players" Click="OnReportByPlayerClicked" />
-                        <MenuFlyoutItem x:Name="ReportByAveragesMenuItem" Text="By Averages" Click="OnReportByAveragesClicked" />
+                        <MenuFlyoutItem Text="By Club" Click="OnReportByClubClicked" />
+                        <MenuFlyoutItem Text="All Players" Click="OnReportByPlayerClicked" />
+                        <MenuFlyoutItem Text="By Averages" Click="OnReportByAveragesClicked" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
@@ -195,7 +186,7 @@
                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12" Margin="0,8,0,16" x:Name="ClubButtonsPanel">
                     <Button x:Name="PrevButton" Content="◀ Previous" Click="OnPrevClicked" Width="110" />
                     <Button x:Name="NextButton" Content="Next ▶" Click="OnNextClicked" Width="110" />
-                    <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" />
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSaveClicked" Width="110" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
                     <Button x:Name="DeleteClubButton" Content="Delete Club" Click="OnDeleteClubClicked" Margin="8,0,0,0" />
                     <Button x:Name="AddPlayerButton" Content="Edit Players" Click="OnAddPlayerClicked" Width="110" />
                     <Button x:Name="LoadFileButton" Content="Import Players" Click="OnBulkAddClicked" Width="160" />

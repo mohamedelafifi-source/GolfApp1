@@ -1,4 +1,4 @@
-// MainWindow.AppFolder.cs
+ï»¿// MainWindow.AppFolder.cs
 //=============================
 // App Folder Management - Selection, confirmation, and state management
 
@@ -65,14 +65,14 @@ namespace GolfApp1
                 if (!string.IsNullOrWhiteSpace(currentPath))
                 {
                     var currentPathPanel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 8, 0, 0) };
-                    currentPathPanel.Children.Add(new TextBlock 
-                    { 
-                        Text = "Current Folder:", 
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold 
+                    currentPathPanel.Children.Add(new TextBlock
+                    {
+                        Text = "Current Folder:",
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
                     });
-                    currentPathPanel.Children.Add(new TextBlock 
-                    { 
-                        Text = currentPath, 
+                    currentPathPanel.Children.Add(new TextBlock
+                    {
+                        Text = currentPath,
                         TextWrapping = TextWrapping.Wrap,
                         FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
                         FontSize = 12
@@ -84,14 +84,14 @@ namespace GolfApp1
                 if (!string.IsNullOrWhiteSpace(currentDbLocation))
                 {
                     var dbLocationPanel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 8, 0, 0) };
-                    dbLocationPanel.Children.Add(new TextBlock 
-                    { 
-                        Text = "Current Database:", 
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold 
+                    dbLocationPanel.Children.Add(new TextBlock
+                    {
+                        Text = "Current Database:",
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
                     });
-                    dbLocationPanel.Children.Add(new TextBlock 
-                    { 
-                        Text = currentDbLocation, 
+                    dbLocationPanel.Children.Add(new TextBlock
+                    {
+                        Text = currentDbLocation,
                         TextWrapping = TextWrapping.Wrap,
                         FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
                         FontSize = 12,
@@ -104,10 +104,10 @@ namespace GolfApp1
                 var dialog = new ContentDialog
                 {
                     Title = forceSelection ? "?? Set App Folder" : "?? Confirm App Folder",
-                    Content = new ScrollViewer 
-                    { 
-                        Content = contentPanel, 
-                        MaxHeight = 500 
+                    Content = new ScrollViewer
+                    {
+                        Content = contentPanel,
+                        MaxHeight = 500
                     },
                     PrimaryButtonText = forceSelection ? "Select Folder..." : "Confirm",
                     SecondaryButtonText = forceSelection && !string.IsNullOrWhiteSpace(currentPath) ? "Keep Current" : null,
@@ -291,7 +291,7 @@ namespace GolfApp1
                 }
 
                 var newDbPath = Path.Combine(configuredFolder, "golfapp.db");
-                
+
                 // Get file sizes
                 var oldFileInfo = new FileInfo(oldDbLocation);
                 var oldSizeKB = oldFileInfo.Length / 1024;
@@ -359,7 +359,7 @@ namespace GolfApp1
                     File.Copy(oldDbLocation, newDbPath, overwrite: true);
 
                     UpdateStatus($"? Database copied successfully ({oldSizeKB:N0} KB)");
-                    await ShowErrorAsync("Migration Complete", 
+                    await ShowErrorAsync("Migration Complete",
                         $"Your database has been successfully copied!\n\n" +
                         $"Size: {oldSizeKB:N0} KB\n" +
                         $"Location: {newDbPath}\n\n" +
@@ -373,7 +373,7 @@ namespace GolfApp1
             catch (Exception ex)
             {
                 UpdateStatus($"Auto-migration error: {ex.Message}");
-                await ShowErrorAsync("Migration Error", 
+                await ShowErrorAsync("Migration Error",
                     $"Failed to copy database automatically:\n{ex.Message}\n\n" +
                     $"You can use 'Database ? Set App Folder' to try again or manually copy the file.");
             }
@@ -432,27 +432,30 @@ namespace GolfApp1
         private void EnableMenuItems(bool enabled)
         {
             // Database menu items (except Set App Folder)
-            if (ClearResultsMenuItem != null) ClearResultsMenuItem.IsEnabled = enabled;
-            if (BackupDatabaseMenuItem != null) BackupDatabaseMenuItem.IsEnabled = enabled;
-            if (RestoreDatabaseMenuItem != null) RestoreDatabaseMenuItem.IsEnabled = enabled;
-            if (CleanDatabaseMenuItem != null) CleanDatabaseMenuItem.IsEnabled = enabled;
+            // TEMPORARILY COMMENTED OUT - These menu items will be added when we update MainWindow.xaml
+            // if (ClearResultsMenuItem != null) ClearResultsMenuItem.IsEnabled = enabled;
+            // if (BackupDatabaseMenuItem != null) BackupDatabaseMenuItem.IsEnabled = enabled;
+            // if (RestoreDatabaseMenuItem != null) RestoreDatabaseMenuItem.IsEnabled = enabled;
+            // if (CleanDatabaseMenuItem != null) CleanDatabaseMenuItem.IsEnabled = enabled;
 
             // Data menu button and items
-            if (DataButton != null) DataButton.IsEnabled = enabled;
-            if (ClubDataMenuItem != null) ClubDataMenuItem.IsEnabled = enabled;
-            if (NewResultsMenuItem != null) NewResultsMenuItem.IsEnabled = enabled;
-            if (ExistingResultsMenuItem != null) ExistingResultsMenuItem.IsEnabled = enabled;
+            // if (DataButton != null) DataButton.IsEnabled = enabled;
+            // if (ClubDataMenuItem != null) ClubDataMenuItem.IsEnabled = enabled;
+            // if (NewResultsMenuItem != null) NewResultsMenuItem.IsEnabled = enabled;
+            // if (ExistingResultsMenuItem != null) ExistingResultsMenuItem.IsEnabled = enabled;
 
-            // Teams menu button and items
-            if (TeamsButton != null) TeamsButton.IsEnabled = enabled;
-            if (CreateTeamMenuItem != null) CreateTeamMenuItem.IsEnabled = enabled;
-            if (CreateGameMenuItem != null) CreateGameMenuItem.IsEnabled = enabled;
+            // Teams menu button and items - NEW (not in old version yet)
+            // if (TeamsButton != null) TeamsButton.IsEnabled = enabled;
+            // if (CreateTeamMenuItem != null) CreateTeamMenuItem.IsEnabled = enabled;
+            // if (CreateGameMenuItem != null) CreateGameMenuItem.IsEnabled = enabled;
 
             // Reports menu button and items
-            if (ReportsButton != null) ReportsButton.IsEnabled = enabled;
-            if (ReportByClubMenuItem != null) ReportByClubMenuItem.IsEnabled = enabled;
-            if (ReportByPlayerMenuItem != null) ReportByPlayerMenuItem.IsEnabled = enabled;
-            if (ReportByAveragesMenuItem != null) ReportByAveragesMenuItem.IsEnabled = enabled;
+            // if (ReportsButton != null) ReportsButton.IsEnabled = enabled;
+            // if (ReportByClubMenuItem != null) ReportByClubMenuItem.IsEnabled = enabled;
+            // if (ReportByPlayerMenuItem != null) ReportByPlayerMenuItem.IsEnabled = enabled;
+            // if (ReportByAveragesMenuItem != null) ReportByAveragesMenuItem.IsEnabled = enabled;
+            
+            // TODO: Uncomment these when MainWindow.xaml is updated with new menu structure
         }
 
         /// <summary>
@@ -521,8 +524,8 @@ namespace GolfApp1
                 {
                     // Small database - check if there's a larger one elsewhere
                     var oldDbLocation = AppSettings.GetCurrentDatabaseLocation();
-                    if (!string.IsNullOrWhiteSpace(oldDbLocation) && 
-                        File.Exists(oldDbLocation) && 
+                    if (!string.IsNullOrWhiteSpace(oldDbLocation) &&
+                        File.Exists(oldDbLocation) &&
                         oldDbLocation != dbPath)
                     {
                         var oldFileInfo = new FileInfo(oldDbLocation);
@@ -581,7 +584,7 @@ namespace GolfApp1
                             },
                             new TextBlock
                             {
-                                Text = "• The database file was deleted or moved\n• The file was renamed\n• You selected the wrong folder\n• This is a new installation",
+                                Text = "  The database file was deleted or moved\n  The file was renamed\n  You selected the wrong folder\n  This is a new installation",
                                 TextWrapping = TextWrapping.Wrap,
                                 Margin = new Thickness(20, 0, 0, 0)
                             },

@@ -1,6 +1,5 @@
 //MainWindow.xaml.cs
 //=====================
-using GolfApp1;
 using GolfApp1.Data;
 using GolfApp1.Models;
 using GolfApp1.ViewModels;
@@ -134,32 +133,12 @@ namespace GolfApp1
             // Reuse existing Add/Update logic implemented in OnUpdatePlayerClicked
             OnUpdatePlayerClicked(sender, e);
         }
-        
         private async Task InitializeAsync()
         {
             try
             {
-                // Check app folder configuration first
-                await CheckAppFolderOnStartupAsync();
-
-                // Only proceed if folder is confirmed AND database exists
-                if (!_appFolderConfirmed)
-                {
-                    UpdateStatus("⚠️ Please resolve the database issue before continuing.");
-                    return;
-                }
-
                 var dataFolder = GetDataFolder();
                 var dbPath = Path.Combine(dataFolder, "golfapp.db");
-
-                // Double-check database file exists before attempting to initialize
-                if (!File.Exists(dbPath))
-                {
-                    UpdateStatus("⚠️ Database file not found. Use 'Database → Set App Folder' to resolve.");
-                    EnableMenuItems(false);
-                    return;
-                }
-
                 _db = new Database(dbPath);
                 await _db.InitializeAsync();
 
@@ -179,16 +158,14 @@ namespace GolfApp1
                 {
                     ShowCurrent();
                 }
-
-                UpdateStatus($"Database loaded: {_clubs.Count} club(s) found.");
             }
             catch (Exception ex)
             {
                 UpdateStatus("Initialization error: " + ex.Message);
                 await ShowErrorAsync("Initialization error", ex.Message);
-                EnableMenuItems(false);
             }
         }
+
         private void RefreshLocalClubsFromVm()
         {
             _clubs.Clear();
@@ -200,32 +177,24 @@ namespace GolfApp1
         {
             StatusLabel.Text = message;
         }
-        
-    private static string GetDataFolder()
-    {
-        // Check for user-configured folder first
-        var configuredPath = AppSettings.GetAppDataFolderPath();
-        if (!string.IsNullOrWhiteSpace(configuredPath) && Directory.Exists(configuredPath))
+
+        private static string GetDataFolder()
         {
-            return configuredPath;
+            try
+            {
+                var appData = ApplicationData.Current;
+                var path = appData?.LocalFolder?.Path;
+                if (!string.IsNullOrWhiteSpace(path)) return path;
+            }
+            catch { /* may fail in unpackaged scenarios */ }
+
+            return AppStorage.GetDataFolder();
         }
 
-        // Fallback to default location
-        try
-        {
-            var appData = ApplicationData.Current;
-            var path = appData?.LocalFolder?.Path;
-            if (!string.IsNullOrWhiteSpace(path)) return path;
-        }
-        catch { /* may fail in unpackaged scenarios */ }
+        // ---------------- Club UI helpers ----------------
 
-        return AppStorage.GetDataFolder();
-    }
-
-// ---------------- Club UI helpers ----------------
-
-// Replace the ShowCurrent method in MainWindow.xaml.cs with this updated implementation.
-private void ShowCurrent()
+        // Replace the ShowCurrent method in MainWindow.xaml.cs with this updated implementation.
+        private void ShowCurrent()
         {
             var total = _clubs.Count + 1;
             var shown = Math.Min(Math.Max(_index + 1, 1), total);

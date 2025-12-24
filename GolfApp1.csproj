@@ -17,9 +17,6 @@
   <ItemGroup>
     <Compile Remove="OLDDatabase.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="global.json" />
-  </ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
@@ -41,7 +38,7 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
-<PackageReference Include="EPPlus" Version="7.0.5" />
+    <PackageReference Include="EPPlus" Version="7.0.5" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
@@ -74,4 +71,3 @@
     </None>
   </ItemGroup>
 </Project>
-

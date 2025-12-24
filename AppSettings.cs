@@ -1,4 +1,4 @@
-// AppSettings.cs
+﻿// AppSettings.cs
 //===========================
 // Manages persistent application settings including the app data folder path
 
